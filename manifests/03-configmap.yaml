@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: dadqn-config
+  namespace: default
+data:
+  PROMETHEUS_URL: "http://prom-kube-prometheus-stack-prometheus.monitoring.svc.cluster.local:9090"
+  PROM_RATE_WINDOW: "30s"
+  K8S_NAMESPACE: "default"
+  SAMPLE_INTERVAL_SEC: "30"
+  DECISION_INTERVAL_SEC: "15"
+  SCALE_DOWN_COOLDOWN_SEC: "90"
+  OBS_FALLBACK_FROM_CPU: "1"
+  # LOCUST_URL: "http://172.31.33.177:8089"      # uncomment in EXPERIMENT mode
+  LOCUST_URL: ""                                  # PRODUCTION mode (default)

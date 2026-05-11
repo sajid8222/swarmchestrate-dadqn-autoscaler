@@ -1,0 +1,32 @@
+# Python
+.venv/
+venv/
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.mypy_cache/
+*.egg-info/
+build/
+dist/
+
+# Local k8s/cloud configs (never commit)
+kubeconfig*
+*.kubeconfig
+vms.env
+.env
+*.pem
+*.key
+
+# Local runs / artifacts
+agent_data/
+agent.log
+*.csv
+!workloads/*.csv
+diagnostics/manifest_test_*/
+
+# Editors / OS
+.idea/
+.vscode/
+.DS_Store
+*.swp

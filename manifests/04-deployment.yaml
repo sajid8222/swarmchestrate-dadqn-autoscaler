@@ -1,0 +1,39 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dadqn-autoscaler
+  namespace: default
+  labels:
+    app: dadqn-autoscaler
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: dadqn-autoscaler
+  template:
+    metadata:
+      labels:
+        app: dadqn-autoscaler
+        istio.io/dataplane-mode: none
+    spec:
+      serviceAccountName: dadqn-autoscaler
+      containers:
+        - name: agent
+          image: proactivellmbasedproject/dadqn-autoscaler:v1
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - configMapRef:
+                name: dadqn-config
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          resources:
+            requests:
+              cpu: "200m"
+              memory: "512Mi"
+            limits:
+              cpu: "1"
+              memory: "2Gi"
+      volumes:
+        - name: data
+          emptyDir: {}
