@@ -71,19 +71,31 @@ class MetricsCollectorV3:
         return 0.0
 
     def get_service_metrics(self, svc: str) -> dict:
-        # Latency: Locust p95 for frontend, Prometheus for others
+        # Latency: Locust p95 for frontend, Prometheus for others.
+        # In production an external load tester is rarely reachable from
+        # the cluster, so we fall back to the Istio ingress Gateway's
+        # request_duration metric — it captures end-to-end client p95 for
+        # every external request and is the canonical production source.
         if svc == "frontend":
             lat = self._get_locust_p95()
             if lat <= 0:
                 lat = self._prom_query(
-                    f'max(sum by (destination_workload) '
-                    f'(rate(istio_request_duration_milliseconds_sum{{'
-                    f'source_workload="frontend",destination_workload!="unknown"}}[{PROM_RATE_WINDOW}])) '
-                    f'/ sum by (destination_workload) '
-                    f'(rate(istio_request_duration_milliseconds_count{{'
-                    f'source_workload="frontend",destination_workload!="unknown"}}[{PROM_RATE_WINDOW}])))')
+                    f'histogram_quantile(0.95, sum by(le) (rate('
+                    f'istio_request_duration_milliseconds_bucket{{'
+                    f'source_workload=~".*-gateway-istio",'
+                    f'destination_workload="frontend"'
+                    f'}}[{PROM_RATE_WINDOW}])))')
                 if lat > 0:
-                    logger.warning(f"Locust unavailable, using Prometheus backend latency ({lat:.1f}ms)")
+                    logger.warning(f"Locust unavailable, using Gateway p95 ({lat:.1f}ms)")
+                else:
+                    # Final fallback: frontend's backend gRPC mean latency
+                    lat = self._prom_query(
+                        f'max(sum by (destination_workload) '
+                        f'(rate(istio_request_duration_milliseconds_sum{{'
+                        f'source_workload="frontend",destination_workload!="unknown"}}[{PROM_RATE_WINDOW}])) '
+                        f'/ sum by (destination_workload) '
+                        f'(rate(istio_request_duration_milliseconds_count{{'
+                        f'source_workload="frontend",destination_workload!="unknown"}}[{PROM_RATE_WINDOW}])))')
         else:
             lat = self._prom_query(
                 f'sum(rate(istio_request_duration_milliseconds_sum{{'

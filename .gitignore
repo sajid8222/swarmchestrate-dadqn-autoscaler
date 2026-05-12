@@ -23,7 +23,11 @@ agent_data/
 agent.log
 *.csv
 !workloads/*.csv
+!experiments/workloads/*.csv
 diagnostics/manifest_test_*/
+experiments/results/
+experiments/results_*/
+results_blind_*/
 
 # Editors / OS
 .idea/

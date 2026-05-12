@@ -19,7 +19,7 @@ spec:
       serviceAccountName: dadqn-autoscaler
       containers:
         - name: agent
-          image: proactivellmbasedproject/dadqn-autoscaler:v1
+          image: proactivellmbasedproject/dadqn-autoscaler:v2
           imagePullPolicy: IfNotPresent
           envFrom:
             - configMapRef:

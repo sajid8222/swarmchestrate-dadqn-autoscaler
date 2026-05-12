@@ -9,7 +9,7 @@ data:
   K8S_NAMESPACE: "default"
   SAMPLE_INTERVAL_SEC: "30"
   DECISION_INTERVAL_SEC: "15"
-  SCALE_DOWN_COOLDOWN_SEC: "90"
+  SCALE_DOWN_COOLDOWN_SEC: "30"
   OBS_FALLBACK_FROM_CPU: "1"
   # LOCUST_URL: "http://172.31.33.177:8089"      # uncomment in EXPERIMENT mode
   LOCUST_URL: ""                                  # PRODUCTION mode (default)
