@@ -2,9 +2,28 @@
 
 A trained **Decentralised Autoscaling agent** (DA-DQN v3 — one Deep Q-Network per microservice, multi-agent) packaged as a Docker image + Kubernetes manifests. Drop it into a k3s cluster running [Online Boutique](https://github.com/GoogleCloudPlatform/microservices-demo) and the agent scales the deployments automatically based on Istio mesh metrics and (optionally) Locust client-side p95.
 
-**Public image:** [`proactivellmbasedproject/dadqn-autoscaler:v1`](https://hub.docker.com/r/proactivellmbasedproject/dadqn-autoscaler)
+**Public image:** [`proactivellmbasedproject/dadqn-autoscaler:v2`](https://hub.docker.com/r/proactivellmbasedproject/dadqn-autoscaler)
+(v1 is also available; v2 is recommended — see [what's new](#whats-new-in-v2).)
 
 The agent does **not** retrain in production. The trained Q-network weights for all 10 services are baked into the image.
+
+## What's new in v2
+
+- **Production-realistic latency source.** When the external load tester is not directly reachable from inside the cluster (the normal production case), the agent now reads end-to-end client p95 from the **Istio ingress Gateway**'s `istio_request_duration_milliseconds` histogram. This is the canonical observability source-of-truth and matches what the trained Q-networks expect. *Before:* fallback queried backend-call mean latency and under-reported by ~100× on single-node setups, leaving the agent passive.
+- **Cooldown 30 s** (was 90 s) — matches the reference DAS/CustomDAS framework cooldown so comparisons are apples-to-apples.
+
+## Reproducing the 4-way comparison
+
+The [`experiments/`](experiments/) directory ships everything to reproduce the KHPA / DAS / CustomDAS / DA-DQN sweep:
+
+```bash
+cd experiments
+NODE_IP=<your-cluster-ip> PEM=<your-ssh-key.pem> bash preflight.sh    # 10-check sanity
+NODE_IP=<your-cluster-ip> PEM=<your-ssh-key.pem> bash run_4way.sh     # ~4 hours full sweep
+python plot_rps_4way.py                                                # 6-panel comparison plot
+```
+
+`live_monitor.sh` (per-service mesh + node CPU/MEM, 5 s refresh) and `node_monitor.sh` (continuous CSV) ship alongside.
 
 ---
 
@@ -217,20 +236,77 @@ kubectl -n default get svc frontend
 
 Hit `http://<any-node-public-ip>:<frontend-NodePort>` in a browser — you should see the Online Boutique shop. **If this works, the mesh is healthy.**
 
-**Add L7 waypoints for the 4 hot services** (needed so the agent gets per-service HTTP latency, not just TCP byte counts):
+**Add L7 waypoints for all 10 services** (needed so the agent gets per-service HTTP/gRPC latency, not just TCP byte counts):
 
 ```bash
-for pair in frontend:fe-waypoint adservice:ad-waypoint checkoutservice:chk-waypoint recommendationservice:rec-waypoint; do
+for pair in adservice:ad-waypoint cartservice:cart-waypoint \
+            checkoutservice:chk-waypoint currencyservice:cur-waypoint \
+            emailservice:email-waypoint frontend:fe-waypoint \
+            paymentservice:pay-waypoint productcatalogservice:prod-waypoint \
+            recommendationservice:rec-waypoint shippingservice:ship-waypoint; do
   svc=${pair%:*}; wp=${pair#*:}
   istioctl waypoint apply -n default --name "$wp" --enroll-namespace=false
   kubectl -n default label svc "$svc" istio.io/use-waypoint="$wp" --overwrite
 done
 
 kubectl -n default get gateways
-# All 4 should show: PROGRAMMED=True
+# All 10 should show: PROGRAMMED=True
 ```
 
 > **Why the naming?** The waypoint name **must not** match an existing Service name. If you name a waypoint `frontend` while a Service `frontend` exists, the Gateway controller tries to bind to that Service's port 15008 (which doesn't exist) and you get `AddressNotUsable`. Convention: `<svc>-waypoint`.
+
+**Expose frontend via Istio ingress Gateway** (so external HTTP enters the mesh and the agent sees real end-to-end p95). Without this, external NodePort traffic bypasses the mesh and the agent's `frontend_latency_ms` only reflects backend hops (~10 ms, way under-reporting reality).
+
+```bash
+# 1) replace the NodePort frontend-external Service with an Istio Gateway
+kubectl -n default delete svc frontend-external --ignore-not-found
+
+cat <<'YAML' | kubectl apply -f -
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata: { name: frontend-gateway, namespace: default }
+spec:
+  gatewayClassName: istio
+  listeners:
+  - { name: http, port: 80, protocol: HTTP, allowedRoutes: { namespaces: { from: Same } } }
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata: { name: frontend-route, namespace: default }
+spec:
+  parentRefs: [{ name: frontend-gateway }]
+  rules:
+  - matches: [{ path: { type: PathPrefix, value: / } }]
+    backendRefs: [{ name: frontend, port: 80 }]
+YAML
+
+# 2) patch the auto-created Gateway Service to NodePort 30193 (your old port)
+kubectl -n default patch svc frontend-gateway-istio --type=json -p='[
+  {"op":"replace","path":"/spec/ports","value":[
+    {"name":"status-port","port":15021,"protocol":"TCP","targetPort":15021},
+    {"name":"http","port":80,"protocol":"TCP","targetPort":80,"nodePort":30193}
+  ]}]'
+
+# 3) tell Prometheus to scrape the ingress Gateway's Envoy stats
+cat <<'YAML' | kubectl apply -f -
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata: { name: istio-ingress-gateways, namespace: monitoring }
+spec:
+  namespaceSelector: { any: true }
+  selector:
+    matchLabels: { istio.io/gateway-name: frontend-gateway }
+  podMetricsEndpoints:
+  - { path: /stats/prometheus, interval: 10s, relabelings: [
+      { action: keep, sourceLabels: [__meta_kubernetes_pod_container_port_name], regex: "http-envoy-prom" }
+    ]}
+YAML
+
+# 4) force frontend to re-establish gRPC connections through the new waypoints
+#    (frontend pods that started BEFORE waypoints were applied use long-lived
+#     gRPC clients that skip the waypoint and emit no per-service mesh metrics)
+kubectl -n default rollout restart deploy frontend
+```
 
 ---
 
