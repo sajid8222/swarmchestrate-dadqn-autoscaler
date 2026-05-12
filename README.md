@@ -3,27 +3,8 @@
 A trained **Decentralised Autoscaling agent** (DA-DQN v3 — one Deep Q-Network per microservice, multi-agent) packaged as a Docker image + Kubernetes manifests. Drop it into a k3s cluster running [Online Boutique](https://github.com/GoogleCloudPlatform/microservices-demo) and the agent scales the deployments automatically based on Istio mesh metrics and (optionally) Locust client-side p95.
 
 **Public image:** [`proactivellmbasedproject/dadqn-autoscaler:v2`](https://hub.docker.com/r/proactivellmbasedproject/dadqn-autoscaler)
-(v1 is also available; v2 is recommended — see [what's new](#whats-new-in-v2).)
 
 The agent does **not** retrain in production. The trained Q-network weights for all 10 services are baked into the image.
-
-## What's new in v2
-
-- **Production-realistic latency source.** When the external load tester is not directly reachable from inside the cluster (the normal production case), the agent now reads end-to-end client p95 from the **Istio ingress Gateway**'s `istio_request_duration_milliseconds` histogram. This is the canonical observability source-of-truth and matches what the trained Q-networks expect. *Before:* fallback queried backend-call mean latency and under-reported by ~100× on single-node setups, leaving the agent passive.
-- **Cooldown 30 s** (was 90 s) — matches the reference DAS/CustomDAS framework cooldown so comparisons are apples-to-apples.
-
-## Reproducing the 4-way comparison
-
-The [`experiments/`](experiments/) directory ships everything to reproduce the KHPA / DAS / CustomDAS / DA-DQN sweep:
-
-```bash
-cd experiments
-NODE_IP=<your-cluster-ip> PEM=<your-ssh-key.pem> bash preflight.sh    # 10-check sanity
-NODE_IP=<your-cluster-ip> PEM=<your-ssh-key.pem> bash run_4way.sh     # ~4 hours full sweep
-python plot_rps_4way.py                                                # 6-panel comparison plot
-```
-
-`live_monitor.sh` (per-service mesh + node CPU/MEM, 5 s refresh) and `node_monitor.sh` (continuous CSV) ship alongside.
 
 ---
 
