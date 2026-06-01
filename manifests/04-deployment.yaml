@@ -21,16 +21,12 @@ spec:
       serviceAccountName: dadqn-autoscaler
       containers:
         - name: agent
-          image: proactivellmbasedproject/dadqn-autoscaler:v2
+          image: proactivellmbasedproject/dadqn-autoscaler:v4-decentralized
           imagePullPolicy: IfNotPresent
           command: ["sh","-c"]
           args:
             - >
-              sed -i 's/^MAX_REPLICAS = 8/MAX_REPLICAS = 9/;
-              s/^MAX_TOTAL_PODS = 35/MAX_TOTAL_PODS = 90/;
-              s/"cpu_usage": 800.0/"cpu_usage": 3000.0/;
-              s/"latency": 5000.0/"latency": 1500.0/' /app/dadqn_v3/config.py &&
-              python -c "import os,re; svc=os.environ['MY_SERVICE']; p='/app/dadqn_v3/config.py'; s=open(p).read(); s=re.sub(r'^SCALABLE_SERVICES = \[[\s\S]*?\]', f'SCALABLE_SERVICES = [\"{svc}\"]', s, flags=re.M); full=['frontend','currencyservice','productcatalogservice','cartservice','adservice','checkoutservice','emailservice','paymentservice','shippingservice','recommendationservice','redis-cart']; s=re.sub(r'^ALL_SERVICES = .*', 'ALL_SERVICES = '+str(full), s, flags=re.M); open(p,'w').write(s); print('patched SCALABLE_SERVICES=',svc,'; ALL_SERVICES kept full')" &&
+              python -c "import os,re; svc=os.environ['MY_SERVICE']; p='/app/dadqn_v3/config.py'; s=open(p).read(); s=re.sub(r'^SCALABLE_SERVICES = \[[\s\S]*?\]', f'SCALABLE_SERVICES = [\"{svc}\"]', s, flags=re.M); open(p,'w').write(s); print('agent =',svc)" &&
               find /app -name '*.pyc' -delete 2>/dev/null;
               exec python -m dadqn_v3.baselines.dadqn_serve
           env:
@@ -40,18 +36,12 @@ spec:
           volumeMounts:
             - {name: data, mountPath: /data}
             - {name: sla-models, mountPath: /mnt/sla_v1, readOnly: true}
-            - {name: mc-patch, mountPath: /app/dadqn_v3/environments/metrics_collector_v3.py, subPath: metrics_collector_v3.py, readOnly: true}
-            - {name: sg-patch, mountPath: /app/dadqn_v3/service_graph.py, subPath: service_graph.py, readOnly: true}
-            - {name: sae-patch, mountPath: /app/dadqn_v3/environments/service_agent_env.py, subPath: service_agent_env.py, readOnly: true}
           resources:
             requests: {cpu: "100m", memory: "256Mi"}
             limits: {cpu: "500m", memory: "1Gi"}
       volumes:
         - {name: data, emptyDir: {}}
         - {name: sla-models, hostPath: {path: /tmp/sla_v1, type: Directory}}
-        - {name: mc-patch, configMap: {name: mc-v3-patch}}
-        - {name: sg-patch, configMap: {name: sg-v2-patch}}
-        - {name: sae-patch, configMap: {name: sae-v4-patch}}
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -70,16 +60,12 @@ spec:
       serviceAccountName: dadqn-autoscaler
       containers:
         - name: agent
-          image: proactivellmbasedproject/dadqn-autoscaler:v2
+          image: proactivellmbasedproject/dadqn-autoscaler:v4-decentralized
           imagePullPolicy: IfNotPresent
           command: ["sh","-c"]
           args:
             - >
-              sed -i 's/^MAX_REPLICAS = 8/MAX_REPLICAS = 9/;
-              s/^MAX_TOTAL_PODS = 35/MAX_TOTAL_PODS = 90/;
-              s/"cpu_usage": 800.0/"cpu_usage": 3000.0/;
-              s/"latency": 5000.0/"latency": 1500.0/' /app/dadqn_v3/config.py &&
-              python -c "import os,re; svc=os.environ['MY_SERVICE']; p='/app/dadqn_v3/config.py'; s=open(p).read(); s=re.sub(r'^SCALABLE_SERVICES = \[[\s\S]*?\]', f'SCALABLE_SERVICES = [\"{svc}\"]', s, flags=re.M); full=['frontend','currencyservice','productcatalogservice','cartservice','adservice','checkoutservice','emailservice','paymentservice','shippingservice','recommendationservice','redis-cart']; s=re.sub(r'^ALL_SERVICES = .*', 'ALL_SERVICES = '+str(full), s, flags=re.M); open(p,'w').write(s); print('patched SCALABLE_SERVICES=',svc,'; ALL_SERVICES kept full')" &&
+              python -c "import os,re; svc=os.environ['MY_SERVICE']; p='/app/dadqn_v3/config.py'; s=open(p).read(); s=re.sub(r'^SCALABLE_SERVICES = \[[\s\S]*?\]', f'SCALABLE_SERVICES = [\"{svc}\"]', s, flags=re.M); open(p,'w').write(s); print('agent =',svc)" &&
               find /app -name '*.pyc' -delete 2>/dev/null;
               exec python -m dadqn_v3.baselines.dadqn_serve
           env:
@@ -89,18 +75,12 @@ spec:
           volumeMounts:
             - {name: data, mountPath: /data}
             - {name: sla-models, mountPath: /mnt/sla_v1, readOnly: true}
-            - {name: mc-patch, mountPath: /app/dadqn_v3/environments/metrics_collector_v3.py, subPath: metrics_collector_v3.py, readOnly: true}
-            - {name: sg-patch, mountPath: /app/dadqn_v3/service_graph.py, subPath: service_graph.py, readOnly: true}
-            - {name: sae-patch, mountPath: /app/dadqn_v3/environments/service_agent_env.py, subPath: service_agent_env.py, readOnly: true}
           resources:
             requests: {cpu: "100m", memory: "256Mi"}
             limits: {cpu: "500m", memory: "1Gi"}
       volumes:
         - {name: data, emptyDir: {}}
         - {name: sla-models, hostPath: {path: /tmp/sla_v1, type: Directory}}
-        - {name: mc-patch, configMap: {name: mc-v3-patch}}
-        - {name: sg-patch, configMap: {name: sg-v2-patch}}
-        - {name: sae-patch, configMap: {name: sae-v4-patch}}
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -119,16 +99,12 @@ spec:
       serviceAccountName: dadqn-autoscaler
       containers:
         - name: agent
-          image: proactivellmbasedproject/dadqn-autoscaler:v2
+          image: proactivellmbasedproject/dadqn-autoscaler:v4-decentralized
           imagePullPolicy: IfNotPresent
           command: ["sh","-c"]
           args:
             - >
-              sed -i 's/^MAX_REPLICAS = 8/MAX_REPLICAS = 9/;
-              s/^MAX_TOTAL_PODS = 35/MAX_TOTAL_PODS = 90/;
-              s/"cpu_usage": 800.0/"cpu_usage": 3000.0/;
-              s/"latency": 5000.0/"latency": 1500.0/' /app/dadqn_v3/config.py &&
-              python -c "import os,re; svc=os.environ['MY_SERVICE']; p='/app/dadqn_v3/config.py'; s=open(p).read(); s=re.sub(r'^SCALABLE_SERVICES = \[[\s\S]*?\]', f'SCALABLE_SERVICES = [\"{svc}\"]', s, flags=re.M); full=['frontend','currencyservice','productcatalogservice','cartservice','adservice','checkoutservice','emailservice','paymentservice','shippingservice','recommendationservice','redis-cart']; s=re.sub(r'^ALL_SERVICES = .*', 'ALL_SERVICES = '+str(full), s, flags=re.M); open(p,'w').write(s); print('patched SCALABLE_SERVICES=',svc,'; ALL_SERVICES kept full')" &&
+              python -c "import os,re; svc=os.environ['MY_SERVICE']; p='/app/dadqn_v3/config.py'; s=open(p).read(); s=re.sub(r'^SCALABLE_SERVICES = \[[\s\S]*?\]', f'SCALABLE_SERVICES = [\"{svc}\"]', s, flags=re.M); open(p,'w').write(s); print('agent =',svc)" &&
               find /app -name '*.pyc' -delete 2>/dev/null;
               exec python -m dadqn_v3.baselines.dadqn_serve
           env:
@@ -138,18 +114,12 @@ spec:
           volumeMounts:
             - {name: data, mountPath: /data}
             - {name: sla-models, mountPath: /mnt/sla_v1, readOnly: true}
-            - {name: mc-patch, mountPath: /app/dadqn_v3/environments/metrics_collector_v3.py, subPath: metrics_collector_v3.py, readOnly: true}
-            - {name: sg-patch, mountPath: /app/dadqn_v3/service_graph.py, subPath: service_graph.py, readOnly: true}
-            - {name: sae-patch, mountPath: /app/dadqn_v3/environments/service_agent_env.py, subPath: service_agent_env.py, readOnly: true}
           resources:
             requests: {cpu: "100m", memory: "256Mi"}
             limits: {cpu: "500m", memory: "1Gi"}
       volumes:
         - {name: data, emptyDir: {}}
         - {name: sla-models, hostPath: {path: /tmp/sla_v1, type: Directory}}
-        - {name: mc-patch, configMap: {name: mc-v3-patch}}
-        - {name: sg-patch, configMap: {name: sg-v2-patch}}
-        - {name: sae-patch, configMap: {name: sae-v4-patch}}
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -168,16 +138,12 @@ spec:
       serviceAccountName: dadqn-autoscaler
       containers:
         - name: agent
-          image: proactivellmbasedproject/dadqn-autoscaler:v2
+          image: proactivellmbasedproject/dadqn-autoscaler:v4-decentralized
           imagePullPolicy: IfNotPresent
           command: ["sh","-c"]
           args:
             - >
-              sed -i 's/^MAX_REPLICAS = 8/MAX_REPLICAS = 9/;
-              s/^MAX_TOTAL_PODS = 35/MAX_TOTAL_PODS = 90/;
-              s/"cpu_usage": 800.0/"cpu_usage": 3000.0/;
-              s/"latency": 5000.0/"latency": 1500.0/' /app/dadqn_v3/config.py &&
-              python -c "import os,re; svc=os.environ['MY_SERVICE']; p='/app/dadqn_v3/config.py'; s=open(p).read(); s=re.sub(r'^SCALABLE_SERVICES = \[[\s\S]*?\]', f'SCALABLE_SERVICES = [\"{svc}\"]', s, flags=re.M); full=['frontend','currencyservice','productcatalogservice','cartservice','adservice','checkoutservice','emailservice','paymentservice','shippingservice','recommendationservice','redis-cart']; s=re.sub(r'^ALL_SERVICES = .*', 'ALL_SERVICES = '+str(full), s, flags=re.M); open(p,'w').write(s); print('patched SCALABLE_SERVICES=',svc,'; ALL_SERVICES kept full')" &&
+              python -c "import os,re; svc=os.environ['MY_SERVICE']; p='/app/dadqn_v3/config.py'; s=open(p).read(); s=re.sub(r'^SCALABLE_SERVICES = \[[\s\S]*?\]', f'SCALABLE_SERVICES = [\"{svc}\"]', s, flags=re.M); open(p,'w').write(s); print('agent =',svc)" &&
               find /app -name '*.pyc' -delete 2>/dev/null;
               exec python -m dadqn_v3.baselines.dadqn_serve
           env:
@@ -187,18 +153,12 @@ spec:
           volumeMounts:
             - {name: data, mountPath: /data}
             - {name: sla-models, mountPath: /mnt/sla_v1, readOnly: true}
-            - {name: mc-patch, mountPath: /app/dadqn_v3/environments/metrics_collector_v3.py, subPath: metrics_collector_v3.py, readOnly: true}
-            - {name: sg-patch, mountPath: /app/dadqn_v3/service_graph.py, subPath: service_graph.py, readOnly: true}
-            - {name: sae-patch, mountPath: /app/dadqn_v3/environments/service_agent_env.py, subPath: service_agent_env.py, readOnly: true}
           resources:
             requests: {cpu: "100m", memory: "256Mi"}
             limits: {cpu: "500m", memory: "1Gi"}
       volumes:
         - {name: data, emptyDir: {}}
         - {name: sla-models, hostPath: {path: /tmp/sla_v1, type: Directory}}
-        - {name: mc-patch, configMap: {name: mc-v3-patch}}
-        - {name: sg-patch, configMap: {name: sg-v2-patch}}
-        - {name: sae-patch, configMap: {name: sae-v4-patch}}
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -217,16 +177,12 @@ spec:
       serviceAccountName: dadqn-autoscaler
       containers:
         - name: agent
-          image: proactivellmbasedproject/dadqn-autoscaler:v2
+          image: proactivellmbasedproject/dadqn-autoscaler:v4-decentralized
           imagePullPolicy: IfNotPresent
           command: ["sh","-c"]
           args:
             - >
-              sed -i 's/^MAX_REPLICAS = 8/MAX_REPLICAS = 9/;
-              s/^MAX_TOTAL_PODS = 35/MAX_TOTAL_PODS = 90/;
-              s/"cpu_usage": 800.0/"cpu_usage": 3000.0/;
-              s/"latency": 5000.0/"latency": 1500.0/' /app/dadqn_v3/config.py &&
-              python -c "import os,re; svc=os.environ['MY_SERVICE']; p='/app/dadqn_v3/config.py'; s=open(p).read(); s=re.sub(r'^SCALABLE_SERVICES = \[[\s\S]*?\]', f'SCALABLE_SERVICES = [\"{svc}\"]', s, flags=re.M); full=['frontend','currencyservice','productcatalogservice','cartservice','adservice','checkoutservice','emailservice','paymentservice','shippingservice','recommendationservice','redis-cart']; s=re.sub(r'^ALL_SERVICES = .*', 'ALL_SERVICES = '+str(full), s, flags=re.M); open(p,'w').write(s); print('patched SCALABLE_SERVICES=',svc,'; ALL_SERVICES kept full')" &&
+              python -c "import os,re; svc=os.environ['MY_SERVICE']; p='/app/dadqn_v3/config.py'; s=open(p).read(); s=re.sub(r'^SCALABLE_SERVICES = \[[\s\S]*?\]', f'SCALABLE_SERVICES = [\"{svc}\"]', s, flags=re.M); open(p,'w').write(s); print('agent =',svc)" &&
               find /app -name '*.pyc' -delete 2>/dev/null;
               exec python -m dadqn_v3.baselines.dadqn_serve
           env:
@@ -236,18 +192,12 @@ spec:
           volumeMounts:
             - {name: data, mountPath: /data}
             - {name: sla-models, mountPath: /mnt/sla_v1, readOnly: true}
-            - {name: mc-patch, mountPath: /app/dadqn_v3/environments/metrics_collector_v3.py, subPath: metrics_collector_v3.py, readOnly: true}
-            - {name: sg-patch, mountPath: /app/dadqn_v3/service_graph.py, subPath: service_graph.py, readOnly: true}
-            - {name: sae-patch, mountPath: /app/dadqn_v3/environments/service_agent_env.py, subPath: service_agent_env.py, readOnly: true}
           resources:
             requests: {cpu: "100m", memory: "256Mi"}
             limits: {cpu: "500m", memory: "1Gi"}
       volumes:
         - {name: data, emptyDir: {}}
         - {name: sla-models, hostPath: {path: /tmp/sla_v1, type: Directory}}
-        - {name: mc-patch, configMap: {name: mc-v3-patch}}
-        - {name: sg-patch, configMap: {name: sg-v2-patch}}
-        - {name: sae-patch, configMap: {name: sae-v4-patch}}
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -266,16 +216,12 @@ spec:
       serviceAccountName: dadqn-autoscaler
       containers:
         - name: agent
-          image: proactivellmbasedproject/dadqn-autoscaler:v2
+          image: proactivellmbasedproject/dadqn-autoscaler:v4-decentralized
           imagePullPolicy: IfNotPresent
           command: ["sh","-c"]
           args:
             - >
-              sed -i 's/^MAX_REPLICAS = 8/MAX_REPLICAS = 9/;
-              s/^MAX_TOTAL_PODS = 35/MAX_TOTAL_PODS = 90/;
-              s/"cpu_usage": 800.0/"cpu_usage": 3000.0/;
-              s/"latency": 5000.0/"latency": 1500.0/' /app/dadqn_v3/config.py &&
-              python -c "import os,re; svc=os.environ['MY_SERVICE']; p='/app/dadqn_v3/config.py'; s=open(p).read(); s=re.sub(r'^SCALABLE_SERVICES = \[[\s\S]*?\]', f'SCALABLE_SERVICES = [\"{svc}\"]', s, flags=re.M); full=['frontend','currencyservice','productcatalogservice','cartservice','adservice','checkoutservice','emailservice','paymentservice','shippingservice','recommendationservice','redis-cart']; s=re.sub(r'^ALL_SERVICES = .*', 'ALL_SERVICES = '+str(full), s, flags=re.M); open(p,'w').write(s); print('patched SCALABLE_SERVICES=',svc,'; ALL_SERVICES kept full')" &&
+              python -c "import os,re; svc=os.environ['MY_SERVICE']; p='/app/dadqn_v3/config.py'; s=open(p).read(); s=re.sub(r'^SCALABLE_SERVICES = \[[\s\S]*?\]', f'SCALABLE_SERVICES = [\"{svc}\"]', s, flags=re.M); open(p,'w').write(s); print('agent =',svc)" &&
               find /app -name '*.pyc' -delete 2>/dev/null;
               exec python -m dadqn_v3.baselines.dadqn_serve
           env:
@@ -285,18 +231,12 @@ spec:
           volumeMounts:
             - {name: data, mountPath: /data}
             - {name: sla-models, mountPath: /mnt/sla_v1, readOnly: true}
-            - {name: mc-patch, mountPath: /app/dadqn_v3/environments/metrics_collector_v3.py, subPath: metrics_collector_v3.py, readOnly: true}
-            - {name: sg-patch, mountPath: /app/dadqn_v3/service_graph.py, subPath: service_graph.py, readOnly: true}
-            - {name: sae-patch, mountPath: /app/dadqn_v3/environments/service_agent_env.py, subPath: service_agent_env.py, readOnly: true}
           resources:
             requests: {cpu: "100m", memory: "256Mi"}
             limits: {cpu: "500m", memory: "1Gi"}
       volumes:
         - {name: data, emptyDir: {}}
         - {name: sla-models, hostPath: {path: /tmp/sla_v1, type: Directory}}
-        - {name: mc-patch, configMap: {name: mc-v3-patch}}
-        - {name: sg-patch, configMap: {name: sg-v2-patch}}
-        - {name: sae-patch, configMap: {name: sae-v4-patch}}
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -315,16 +255,12 @@ spec:
       serviceAccountName: dadqn-autoscaler
       containers:
         - name: agent
-          image: proactivellmbasedproject/dadqn-autoscaler:v2
+          image: proactivellmbasedproject/dadqn-autoscaler:v4-decentralized
           imagePullPolicy: IfNotPresent
           command: ["sh","-c"]
           args:
             - >
-              sed -i 's/^MAX_REPLICAS = 8/MAX_REPLICAS = 9/;
-              s/^MAX_TOTAL_PODS = 35/MAX_TOTAL_PODS = 90/;
-              s/"cpu_usage": 800.0/"cpu_usage": 3000.0/;
-              s/"latency": 5000.0/"latency": 1500.0/' /app/dadqn_v3/config.py &&
-              python -c "import os,re; svc=os.environ['MY_SERVICE']; p='/app/dadqn_v3/config.py'; s=open(p).read(); s=re.sub(r'^SCALABLE_SERVICES = \[[\s\S]*?\]', f'SCALABLE_SERVICES = [\"{svc}\"]', s, flags=re.M); full=['frontend','currencyservice','productcatalogservice','cartservice','adservice','checkoutservice','emailservice','paymentservice','shippingservice','recommendationservice','redis-cart']; s=re.sub(r'^ALL_SERVICES = .*', 'ALL_SERVICES = '+str(full), s, flags=re.M); open(p,'w').write(s); print('patched SCALABLE_SERVICES=',svc,'; ALL_SERVICES kept full')" &&
+              python -c "import os,re; svc=os.environ['MY_SERVICE']; p='/app/dadqn_v3/config.py'; s=open(p).read(); s=re.sub(r'^SCALABLE_SERVICES = \[[\s\S]*?\]', f'SCALABLE_SERVICES = [\"{svc}\"]', s, flags=re.M); open(p,'w').write(s); print('agent =',svc)" &&
               find /app -name '*.pyc' -delete 2>/dev/null;
               exec python -m dadqn_v3.baselines.dadqn_serve
           env:
@@ -334,18 +270,12 @@ spec:
           volumeMounts:
             - {name: data, mountPath: /data}
             - {name: sla-models, mountPath: /mnt/sla_v1, readOnly: true}
-            - {name: mc-patch, mountPath: /app/dadqn_v3/environments/metrics_collector_v3.py, subPath: metrics_collector_v3.py, readOnly: true}
-            - {name: sg-patch, mountPath: /app/dadqn_v3/service_graph.py, subPath: service_graph.py, readOnly: true}
-            - {name: sae-patch, mountPath: /app/dadqn_v3/environments/service_agent_env.py, subPath: service_agent_env.py, readOnly: true}
           resources:
             requests: {cpu: "100m", memory: "256Mi"}
             limits: {cpu: "500m", memory: "1Gi"}
       volumes:
         - {name: data, emptyDir: {}}
         - {name: sla-models, hostPath: {path: /tmp/sla_v1, type: Directory}}
-        - {name: mc-patch, configMap: {name: mc-v3-patch}}
-        - {name: sg-patch, configMap: {name: sg-v2-patch}}
-        - {name: sae-patch, configMap: {name: sae-v4-patch}}
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -364,16 +294,12 @@ spec:
       serviceAccountName: dadqn-autoscaler
       containers:
         - name: agent
-          image: proactivellmbasedproject/dadqn-autoscaler:v2
+          image: proactivellmbasedproject/dadqn-autoscaler:v4-decentralized
           imagePullPolicy: IfNotPresent
           command: ["sh","-c"]
           args:
             - >
-              sed -i 's/^MAX_REPLICAS = 8/MAX_REPLICAS = 9/;
-              s/^MAX_TOTAL_PODS = 35/MAX_TOTAL_PODS = 90/;
-              s/"cpu_usage": 800.0/"cpu_usage": 3000.0/;
-              s/"latency": 5000.0/"latency": 1500.0/' /app/dadqn_v3/config.py &&
-              python -c "import os,re; svc=os.environ['MY_SERVICE']; p='/app/dadqn_v3/config.py'; s=open(p).read(); s=re.sub(r'^SCALABLE_SERVICES = \[[\s\S]*?\]', f'SCALABLE_SERVICES = [\"{svc}\"]', s, flags=re.M); full=['frontend','currencyservice','productcatalogservice','cartservice','adservice','checkoutservice','emailservice','paymentservice','shippingservice','recommendationservice','redis-cart']; s=re.sub(r'^ALL_SERVICES = .*', 'ALL_SERVICES = '+str(full), s, flags=re.M); open(p,'w').write(s); print('patched SCALABLE_SERVICES=',svc,'; ALL_SERVICES kept full')" &&
+              python -c "import os,re; svc=os.environ['MY_SERVICE']; p='/app/dadqn_v3/config.py'; s=open(p).read(); s=re.sub(r'^SCALABLE_SERVICES = \[[\s\S]*?\]', f'SCALABLE_SERVICES = [\"{svc}\"]', s, flags=re.M); open(p,'w').write(s); print('agent =',svc)" &&
               find /app -name '*.pyc' -delete 2>/dev/null;
               exec python -m dadqn_v3.baselines.dadqn_serve
           env:
@@ -383,18 +309,12 @@ spec:
           volumeMounts:
             - {name: data, mountPath: /data}
             - {name: sla-models, mountPath: /mnt/sla_v1, readOnly: true}
-            - {name: mc-patch, mountPath: /app/dadqn_v3/environments/metrics_collector_v3.py, subPath: metrics_collector_v3.py, readOnly: true}
-            - {name: sg-patch, mountPath: /app/dadqn_v3/service_graph.py, subPath: service_graph.py, readOnly: true}
-            - {name: sae-patch, mountPath: /app/dadqn_v3/environments/service_agent_env.py, subPath: service_agent_env.py, readOnly: true}
           resources:
             requests: {cpu: "100m", memory: "256Mi"}
             limits: {cpu: "500m", memory: "1Gi"}
       volumes:
         - {name: data, emptyDir: {}}
         - {name: sla-models, hostPath: {path: /tmp/sla_v1, type: Directory}}
-        - {name: mc-patch, configMap: {name: mc-v3-patch}}
-        - {name: sg-patch, configMap: {name: sg-v2-patch}}
-        - {name: sae-patch, configMap: {name: sae-v4-patch}}
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -413,16 +333,12 @@ spec:
       serviceAccountName: dadqn-autoscaler
       containers:
         - name: agent
-          image: proactivellmbasedproject/dadqn-autoscaler:v2
+          image: proactivellmbasedproject/dadqn-autoscaler:v4-decentralized
           imagePullPolicy: IfNotPresent
           command: ["sh","-c"]
           args:
             - >
-              sed -i 's/^MAX_REPLICAS = 8/MAX_REPLICAS = 9/;
-              s/^MAX_TOTAL_PODS = 35/MAX_TOTAL_PODS = 90/;
-              s/"cpu_usage": 800.0/"cpu_usage": 3000.0/;
-              s/"latency": 5000.0/"latency": 1500.0/' /app/dadqn_v3/config.py &&
-              python -c "import os,re; svc=os.environ['MY_SERVICE']; p='/app/dadqn_v3/config.py'; s=open(p).read(); s=re.sub(r'^SCALABLE_SERVICES = \[[\s\S]*?\]', f'SCALABLE_SERVICES = [\"{svc}\"]', s, flags=re.M); full=['frontend','currencyservice','productcatalogservice','cartservice','adservice','checkoutservice','emailservice','paymentservice','shippingservice','recommendationservice','redis-cart']; s=re.sub(r'^ALL_SERVICES = .*', 'ALL_SERVICES = '+str(full), s, flags=re.M); open(p,'w').write(s); print('patched SCALABLE_SERVICES=',svc,'; ALL_SERVICES kept full')" &&
+              python -c "import os,re; svc=os.environ['MY_SERVICE']; p='/app/dadqn_v3/config.py'; s=open(p).read(); s=re.sub(r'^SCALABLE_SERVICES = \[[\s\S]*?\]', f'SCALABLE_SERVICES = [\"{svc}\"]', s, flags=re.M); open(p,'w').write(s); print('agent =',svc)" &&
               find /app -name '*.pyc' -delete 2>/dev/null;
               exec python -m dadqn_v3.baselines.dadqn_serve
           env:
@@ -432,18 +348,12 @@ spec:
           volumeMounts:
             - {name: data, mountPath: /data}
             - {name: sla-models, mountPath: /mnt/sla_v1, readOnly: true}
-            - {name: mc-patch, mountPath: /app/dadqn_v3/environments/metrics_collector_v3.py, subPath: metrics_collector_v3.py, readOnly: true}
-            - {name: sg-patch, mountPath: /app/dadqn_v3/service_graph.py, subPath: service_graph.py, readOnly: true}
-            - {name: sae-patch, mountPath: /app/dadqn_v3/environments/service_agent_env.py, subPath: service_agent_env.py, readOnly: true}
           resources:
             requests: {cpu: "100m", memory: "256Mi"}
             limits: {cpu: "500m", memory: "1Gi"}
       volumes:
         - {name: data, emptyDir: {}}
         - {name: sla-models, hostPath: {path: /tmp/sla_v1, type: Directory}}
-        - {name: mc-patch, configMap: {name: mc-v3-patch}}
-        - {name: sg-patch, configMap: {name: sg-v2-patch}}
-        - {name: sae-patch, configMap: {name: sae-v4-patch}}
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -462,16 +372,12 @@ spec:
       serviceAccountName: dadqn-autoscaler
       containers:
         - name: agent
-          image: proactivellmbasedproject/dadqn-autoscaler:v2
+          image: proactivellmbasedproject/dadqn-autoscaler:v4-decentralized
           imagePullPolicy: IfNotPresent
           command: ["sh","-c"]
           args:
             - >
-              sed -i 's/^MAX_REPLICAS = 8/MAX_REPLICAS = 9/;
-              s/^MAX_TOTAL_PODS = 35/MAX_TOTAL_PODS = 90/;
-              s/"cpu_usage": 800.0/"cpu_usage": 3000.0/;
-              s/"latency": 5000.0/"latency": 1500.0/' /app/dadqn_v3/config.py &&
-              python -c "import os,re; svc=os.environ['MY_SERVICE']; p='/app/dadqn_v3/config.py'; s=open(p).read(); s=re.sub(r'^SCALABLE_SERVICES = \[[\s\S]*?\]', f'SCALABLE_SERVICES = [\"{svc}\"]', s, flags=re.M); full=['frontend','currencyservice','productcatalogservice','cartservice','adservice','checkoutservice','emailservice','paymentservice','shippingservice','recommendationservice','redis-cart']; s=re.sub(r'^ALL_SERVICES = .*', 'ALL_SERVICES = '+str(full), s, flags=re.M); open(p,'w').write(s); print('patched SCALABLE_SERVICES=',svc,'; ALL_SERVICES kept full')" &&
+              python -c "import os,re; svc=os.environ['MY_SERVICE']; p='/app/dadqn_v3/config.py'; s=open(p).read(); s=re.sub(r'^SCALABLE_SERVICES = \[[\s\S]*?\]', f'SCALABLE_SERVICES = [\"{svc}\"]', s, flags=re.M); open(p,'w').write(s); print('agent =',svc)" &&
               find /app -name '*.pyc' -delete 2>/dev/null;
               exec python -m dadqn_v3.baselines.dadqn_serve
           env:
@@ -481,15 +387,9 @@ spec:
           volumeMounts:
             - {name: data, mountPath: /data}
             - {name: sla-models, mountPath: /mnt/sla_v1, readOnly: true}
-            - {name: mc-patch, mountPath: /app/dadqn_v3/environments/metrics_collector_v3.py, subPath: metrics_collector_v3.py, readOnly: true}
-            - {name: sg-patch, mountPath: /app/dadqn_v3/service_graph.py, subPath: service_graph.py, readOnly: true}
-            - {name: sae-patch, mountPath: /app/dadqn_v3/environments/service_agent_env.py, subPath: service_agent_env.py, readOnly: true}
           resources:
             requests: {cpu: "100m", memory: "256Mi"}
             limits: {cpu: "500m", memory: "1Gi"}
       volumes:
         - {name: data, emptyDir: {}}
         - {name: sla-models, hostPath: {path: /tmp/sla_v1, type: Directory}}
-        - {name: mc-patch, configMap: {name: mc-v3-patch}}
-        - {name: sg-patch, configMap: {name: sg-v2-patch}}
-        - {name: sae-patch, configMap: {name: sae-v4-patch}}

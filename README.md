@@ -77,26 +77,36 @@ dadqn-autoscaler/
 
 ## Quick start (cluster already has Boutique + Istio + Prometheus)
 
-```bash
-# 1. Apply RBAC, configmap, and 10 per-service deployments
-kubectl apply -f manifests/
+The agent image **`proactivellmbasedproject/dadqn-autoscaler:v4-decentralized`** has all V4 patches baked in — no ConfigMap workarounds needed.
 
-# 2. Wait for all 10 agents to be Ready
-kubectl -n default wait --for=condition=Available deploy -l app=dadqn-autoscaler --timeout=180s
-
-# 3. Watch them scale — each agent prints decisions for ITS OWN service only
-kubectl -n default logs deploy/dadqn-frontend  -f &
-kubectl -n default logs deploy/dadqn-cartservice -f
-```
-
-**Important:** the models in `models/sla_v1/*.zip` mount via `hostPath` from
-`/tmp/sla_v1/` on each worker node. Before applying, copy them onto every worker:
+**Step 1 — Stage models on every worker node** (DA-DQN pods mount `/tmp/sla_v1/` via hostPath):
 
 ```bash
 for worker in <worker-ip-1> <worker-ip-2> ...; do
   ssh ubuntu@$worker 'mkdir -p /tmp/sla_v1'
   scp models/sla_v1/*.zip ubuntu@$worker:/tmp/sla_v1/
 done
+```
+
+**Step 2 — Apply the agents:**
+
+```bash
+kubectl apply -f manifests/
+kubectl -n default wait --for=condition=Available deploy -l app=dadqn-autoscaler --timeout=180s
+```
+
+That's it — 10 decentralized per-service agents are now running and scaling Boutique. Or use the helper:
+
+```bash
+bash scripts/apply_dadqn.sh
+```
+
+**Step 3 — Watch decentralized scaling decisions:**
+
+```bash
+# Each agent prints decisions for ITS OWN service only — proof of decentralization
+kubectl -n default logs deploy/dadqn-frontend  -f &
+kubectl -n default logs deploy/dadqn-cartservice -f
 ```
 
 ---
@@ -309,19 +319,12 @@ done
 **Apply the agent manifests:**
 
 ```bash
-# The 3 ConfigMaps below mount over the public image's old source code.
-# (If you rebuilt the image from this repo, you can skip these — see Dockerfile.)
-kubectl -n default create configmap mc-v3-patch \
-    --from-file=metrics_collector_v3.py=dadqn_v3/environments/metrics_collector_v3.py
-kubectl -n default create configmap sg-v2-patch \
-    --from-file=service_graph.py=dadqn_v3/service_graph.py
-kubectl -n default create configmap sae-v4-patch \
-    --from-file=service_agent_env.py=dadqn_v3/environments/service_agent_env.py
-
 kubectl apply -f manifests/
 kubectl -n default wait --for=condition=Available deploy -l app=dadqn-autoscaler --timeout=180s
 kubectl -n default get pods -l app=dadqn-autoscaler -o wide
 ```
+
+The manifest uses public image `proactivellmbasedproject/dadqn-autoscaler:v4-decentralized` which already includes all V4 patches (cascade graph, utilization features, Prometheus-only metrics, NORM_BOUNDS tuning). No ConfigMap mounts required. If you want to rebuild from source, see the `Dockerfile`.
 
 ### 7. Run a load test
 
@@ -418,10 +421,7 @@ to retrain on your own cluster's data distribution.
 - **`preflight_full.sh` after VM stop/start**: Istio mesh state, Prometheus scrape
   targets, and waypoint pod counts often need a rolling restart. The script
   handles all three.
-- **Image build**: the public image `proactivellmbasedproject/dadqn-autoscaler:v2`
-  contains an OLDER snapshot of `dadqn_v3/`. The 3 ConfigMaps in `manifests/`
-  mount patched files over it. If you rebuild from this repo's Dockerfile, you
-  can drop the ConfigMap mounts.
+- **Image**: the deployed agent uses `proactivellmbasedproject/dadqn-autoscaler:v4-decentralized` which has every V4 patch baked in (cascade `service_graph.py`, utilization-feature `service_agent_env.py`, Prometheus-only `metrics_collector_v3.py`, NORM_BOUNDS tuned for cluster-2 sized hardware). No ConfigMap subPath mounts are needed. Rebuild from `Dockerfile` if you want a custom image; tag and update `manifests/04-deployment.yaml`.
 
 ## License
 

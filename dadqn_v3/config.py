@@ -13,12 +13,29 @@ SCALABLE_SERVICES = [
     "adservice", "checkoutservice", "emailservice", "paymentservice",
     "shippingservice", "recommendationservice",
 ]
-ALL_SERVICES = SCALABLE_SERVICES + ["redis-cart"]
+# V4: hardcoded full list — each per-service agent pod patches SCALABLE_SERVICES
+# down to [MY_SERVICE] at startup, but ALL_SERVICES must remain the full set so
+# the metric collector still gathers neighbor metrics for the cascade observation.
+ALL_SERVICES = [
+    "frontend", "currencyservice", "productcatalogservice", "cartservice",
+    "adservice", "checkoutservice", "emailservice", "paymentservice",
+    "shippingservice", "recommendationservice", "redis-cart",
+]
 
 # Scaling limits
 MIN_REPLICAS = 1
-MAX_REPLICAS = 9                  # per-service cap (was 8) — user spec: min 1, max 9
-MAX_TOTAL_PODS = 90               # non-binding (10 svc x 9); per-service cap + cost govern, not fixed trimming
+MAX_REPLICAS = 9                       # V4: was 8
+MAX_TOTAL_PODS = 90                    # V4: was 40
+
+# Per-service overrides for MAX_REPLICAS. Services not listed use MAX_REPLICAS.
+# (frontend cap reverted — needs full 8 to absorb user-facing load at rps-600)
+MAX_REPLICAS_PER_SERVICE = {
+    "recommendationservice": 8,
+}
+
+
+def get_max_replicas(svc: str) -> int:
+    return MAX_REPLICAS_PER_SERVICE.get(svc, MAX_REPLICAS)
 NUM_ACTIONS = 7  # {-3, -2, -1, 0, +1, +2, +3}
 ACTION_TO_DELTA = {0: -3, 1: -2, 2: -1, 3: 0, 4: 1, 5: 2, 6: 3}
 HOLD_ACTION = 3
@@ -40,13 +57,13 @@ V3_METRICS = ["num_pods", "cpu_usage", "mem_usage", "http_rpm", "http_lat_ms", "
 # Normalization bounds
 NORM_BOUNDS = {
     "pod_count": MAX_REPLICAS,
-    "cpu_usage": 3000.0,   # was 800 — frontend/rec run 900-2855m; 800 saturated the obs at 1.0
+    "cpu_usage": 3000.0,
     "mem_usage": 1000.0,
     "http_rpm": 15000.0,
     "http_lat_ms": 5000.0,
     "grpc_rpm": 50000.0,
     "grpc_lat_ms": 5000.0,
-    "latency": 5000.0,
+    "latency": 1500.0,
     "traffic_in": 50000.0,
     "traffic_out": 50000.0,
 }
