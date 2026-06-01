@@ -24,7 +24,7 @@ import time
 import numpy as np
 
 from dadqn_v3.config import (
-    SCALABLE_SERVICES, MIN_REPLICAS, MAX_REPLICAS, get_max_replicas,
+    SCALABLE_SERVICES, MIN_REPLICAS, MAX_REPLICAS,
     MAX_TOTAL_PODS, ACTION_TO_DELTA, HOLD_ACTION,
     SLA_LATENCY_MS, SERVICE_RESOURCES,
 )
@@ -79,7 +79,7 @@ class MultiAgentEnvironmentClusterV3:
         for svc in SCALABLE_SERVICES:
             delta = ACTION_TO_DELTA[actions[svc]]
             current = self.shared_state.replicas.get(svc, MIN_REPLICAS)
-            proposed[svc] = int(np.clip(current + delta, MIN_REPLICAS, get_max_replicas(svc)))
+            proposed[svc] = int(np.clip(current + delta, MIN_REPLICAS, MAX_REPLICAS))
 
         # 2. Budget enforcement
         proposed = self._enforce_budget(proposed)

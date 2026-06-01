@@ -1,161 +1,189 @@
-# Swarmchestrate DA-DQN Autoscaler
+# DA-DQN Autoscaler — Decentralized, Per-Service (V4)
 
-A trained **Decentralised Autoscaling agent** (DA-DQN v3 — one Deep Q-Network per microservice, multi-agent) packaged as a Docker image + Kubernetes manifests. Drop it into a k3s cluster running [Online Boutique](https://github.com/GoogleCloudPlatform/microservices-demo) and the agent scales the deployments automatically based on Istio mesh metrics and (optionally) Locust client-side p95.
+A **decentralized** Deep-Q-Network autoscaler for microservices. One trained DQN
+agent per microservice runs as its **own Kubernetes Deployment**, observes its
+service plus its **upstream callers** (cascade graph), and scales only itself.
+No central coordinator, no single point of failure.
 
-**Public image:** [`proactivellmbasedproject/dadqn-autoscaler:v2`](https://hub.docker.com/r/proactivellmbasedproject/dadqn-autoscaler)
-
-The agent does **not** retrain in production. The trained Q-network weights for all 10 services are baked into the image.
-
----
-
-## TL;DR
-
-If you already have a k3s cluster with Online Boutique + Istio ambient mesh + Prometheus running, you can deploy the agent in **3 commands** (see [Quick start](#quick-start-3-commands-cluster-already-set-up)).
-
-If you are starting from scratch (just have a few Linux VMs), follow the **[End-to-end guide](#end-to-end-guide-from-zero-to-autoscaling)** below.
+Tested on [Online Boutique](https://github.com/GoogleCloudPlatform/microservices-demo)
+running in a k3s cluster with Istio ambient mesh and Prometheus.
 
 ---
 
-## End-to-end guide (from zero to autoscaling)
+## Architecture (V4)
 
-This walks a beginner from "I have 3 empty Linux VMs" to "DA-DQN is autoscaling Online Boutique under load". Tested on AWS `t2.large` (Ubuntu 24.04).
+```
+External traffic ─► Istio Gateway (NodePort 30193) ─► Online Boutique
+                                                      (frontend → 7 backend gRPC services)
 
-### Step 0 — What you need before starting
+10 DA-DQN agents (1 Deployment each, scheduled across workers):
 
-| On your laptop | On each VM |
-|---|---|
-| SSH access to the VMs | Ubuntu 22.04 / 24.04 (or any systemd Linux) |
-| `kubectl` installed | 2 vCPU, 4 GB RAM minimum, 30 GB disk |
-| `git` installed | Outbound internet (to pull k3s, Helm, Istio, images) |
+  dadqn-frontend                ─► scales deploy/frontend
+  dadqn-cartservice             ─► scales deploy/cartservice
+  dadqn-productcatalogservice   ─► scales deploy/productcatalogservice
+  dadqn-currencyservice         ─► scales deploy/currencyservice
+  dadqn-recommendationservice   ─► scales deploy/recommendationservice
+  dadqn-checkoutservice         ─► scales deploy/checkoutservice
+  dadqn-adservice               ─► scales deploy/adservice
+  dadqn-shippingservice         ─► scales deploy/shippingservice
+  dadqn-paymentservice          ─► scales deploy/paymentservice
+  dadqn-emailservice            ─► scales deploy/emailservice
+```
 
-> **Networking:** if the VMs are in different security groups (e.g. AWS), open these ports between them: **TCP 6443** (k3s API), **UDP 8472** (flannel VXLAN), **TCP 10250** (kubelet). Otherwise workers will loop on `failed to get CA certs`.
-
-For the rest of this guide I'll assume:
-- `node1` = k3s server (control plane + workload)
-- `node2`, `node3` = k3s workers
-
-Use whatever hostnames or SSH aliases you like — just replace them in the commands.
+Each agent reads from **Prometheus** (Istio mesh metrics) on a 30 s sample cycle
+and decides every 15 s. Observation = own metrics + **upstream caller** features
++ frontend p95 SLA signal + time fraction. See [docs/architecture.md](docs/architecture.md).
 
 ---
 
-### Step 1 — Install k3s on the cluster
+## Repository layout
 
-**On `node1` (k3s server):**
+```
+dadqn-autoscaler/
+├── dadqn_v3/                       # Python agent package (all V4 patches baked in)
+│   ├── service_graph.py            # CASCADE redesign — callers as neighbours
+│   ├── config.py                   # SCALABLE_SERVICES, NORM_BOUNDS, etc.
+│   ├── reward_v2.py                # SLA + resource + cascade reward
+│   ├── agents/                     # DQN agent + multi-agent system
+│   ├── environments/
+│   │   ├── service_agent_env.py    # UTILIZATION-feature observation
+│   │   ├── metrics_collector_v3.py # Prometheus-only metrics (no kubectl)
+│   │   └── multi_agent_env_cluster_v3.py
+│   └── baselines/dadqn_serve.py    # in-cluster serve loop
+│
+├── manifests/                      # 10 per-service Deployments + RBAC + configmap
+│   ├── 01-serviceaccount.yaml
+│   ├── 02-rbac.yaml
+│   ├── 03-configmap.yaml           # PROMETHEUS_URL, sample/decision intervals
+│   └── 04-deployment.yaml          # 10 Deployments, one per service
+│
+├── models/sla_v1/                  # 10 SLA-retrained DQN models (sim_cascade_v4/final)
+│   └── *_dqn.zip
+│
+├── locust/wiki_locustfile.py       # CSV-driven load generator
+├── workloads/rps-{200,400,600}.csv # load profiles
+│
+├── scripts/
+│   ├── preflight_full.sh           # post-restart fix (gateway, waypoints, Prom)
+│   ├── live_monitor.sh             # 5 s live mesh + node monitor
+│   └── monitor.sh                  # compact per-worker monitor
+│
+├── docs/architecture.md            # observation layout, cascade graph, dims
+├── Dockerfile                      # builds the agent image
+└── requirements.txt
+```
+
+---
+
+## Quick start (cluster already has Boutique + Istio + Prometheus)
 
 ```bash
-curl -sfL https://get.k3s.io | INSTALL_K3S_VERSION=v1.30.4+k3s1 sh -s - server \
-    --write-kubeconfig-mode 644 \
-    --disable traefik
+# 1. Apply RBAC, configmap, and 10 per-service deployments
+kubectl apply -f manifests/
 
-# Grab the node-join token
-sudo cat /var/lib/rancher/k3s/server/node-token
-# Copy the printed token — you'll need it on the workers.
+# 2. Wait for all 10 agents to be Ready
+kubectl -n default wait --for=condition=Available deploy -l app=dadqn-autoscaler --timeout=180s
+
+# 3. Watch them scale — each agent prints decisions for ITS OWN service only
+kubectl -n default logs deploy/dadqn-frontend  -f &
+kubectl -n default logs deploy/dadqn-cartservice -f
 ```
 
-**On `node2` and `node3` (k3s workers):**
+**Important:** the models in `models/sla_v1/*.zip` mount via `hostPath` from
+`/tmp/sla_v1/` on each worker node. Before applying, copy them onto every worker:
 
 ```bash
-NODE1_IP=<private IP of node1>
-TOKEN=<token from previous step>
-
-curl -sfL https://get.k3s.io | INSTALL_K3S_VERSION=v1.30.4+k3s1 \
-    K3S_URL="https://${NODE1_IP}:6443" \
-    K3S_TOKEN="${TOKEN}" sh -s - agent
+for worker in <worker-ip-1> <worker-ip-2> ...; do
+  ssh ubuntu@$worker 'mkdir -p /tmp/sla_v1'
+  scp models/sla_v1/*.zip ubuntu@$worker:/tmp/sla_v1/
+done
 ```
 
-**Verify on `node1`:**
+---
+
+## End-to-end setup (from empty VMs)
+
+This walks from **3+ empty Linux VMs** to **DA-DQN scaling Boutique under load**.
+Tested on AWS t2.large / t3.medium (Ubuntu 22.04 / 24.04 / 26.04).
+
+### 1. Install k3s
+
+**On the control-plane node:**
 
 ```bash
-sudo k3s kubectl get nodes
+curl -sfL https://get.k3s.io | sh -s - server \
+    --node-taint CriticalAddonsOnly=true:NoSchedule \
+    --tls-san <CP-PRIVATE-IP>
+sudo cat /var/lib/rancher/k3s/server/node-token   # copy this
 ```
 
-You should see all 3 nodes `Ready`:
+> The `NoSchedule` taint keeps workload pods OFF the CP. Boutique + DA-DQN
+> agents land only on workers — clean separation of concerns.
 
-```
-NAME    STATUS   ROLES                  AGE   VERSION
-node1   Ready    control-plane,master   2m    v1.30.4+k3s1
-node2   Ready    <none>                 30s   v1.30.4+k3s1
-node3   Ready    <none>                 25s   v1.30.4+k3s1
-```
-
-**Export kubeconfig** (so the rest of the guide works without `sudo k3s`):
+**On each worker:**
 
 ```bash
+curl -sfL https://get.k3s.io | K3S_URL=https://<CP-PRIVATE-IP>:6443 \
+    K3S_TOKEN=<token-from-CP> sh -
+```
+
+**Verify on CP:**
+
+```bash
+sudo chmod 644 /etc/rancher/k3s/k3s.yaml
 export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
-kubectl get nodes
+kubectl get nodes        # all Ready (CP shows control-plane role, workers <none>)
 ```
 
----
+> **Networking note:** if VMs are in different security groups (AWS etc.) you must
+> open intra-VPC traffic. The k3s agent needs to reach CP on TCP 6443, and the
+> mesh needs flannel VXLAN (UDP 8472) and kubelet (TCP 10250) between all nodes.
 
-### Step 2 — Install `istioctl` and Helm on `node1`
-
-```bash
-# istioctl 1.23.2
-cd /tmp
-curl -fsSL https://github.com/istio/istio/releases/download/1.23.2/istio-1.23.2-linux-amd64.tar.gz -o istio.tgz
-tar -xzf istio.tgz
-sudo install -m 0755 istio-1.23.2/bin/istioctl /usr/local/bin/istioctl
-rm -rf istio.tgz istio-1.23.2/
-istioctl version --remote=false   # should print 1.23.2
-
-# Helm
-curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
-helm version --short
-```
-
----
-
-### Step 3 — Install Istio ambient mesh
+### 2. Install Istio ambient + Gateway API CRDs
 
 ```bash
-# Gateway API CRDs (needed for waypoints)
+# Gateway API CRDs
 kubectl apply -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.2.0/standard-install.yaml
 
-# Istio ambient profile — k3s requires custom CNI paths
+# istioctl 1.23.2
+curl -fsSL https://github.com/istio/istio/releases/download/1.23.2/istio-1.23.2-linux-amd64.tar.gz | tar -xz
+sudo install -m 0755 istio-1.23.2/bin/istioctl /usr/local/bin/
+
+# Install ambient profile (k3s-specific CNI paths)
+# Path depends on k3s version:
+#   v1.30 and earlier: /var/lib/rancher/k3s/data/current/bin
+#   v1.31+:            /var/lib/rancher/k3s/data/cni
 istioctl install -y --set profile=ambient \
-    --set values.cni.cniBinDir=/var/lib/rancher/k3s/data/current/bin \
+    --set values.cni.cniBinDir=/var/lib/rancher/k3s/data/cni \
     --set values.cni.cniConfDir=/var/lib/rancher/k3s/agent/etc/cni/net.d \
     --set values.global.platform=k3s
-
-# Wait until the 3 ambient components are Ready
-kubectl -n istio-system rollout status deploy/istiod         --timeout=180s
-kubectl -n istio-system rollout status ds/ztunnel            --timeout=180s
-kubectl -n istio-system rollout status ds/istio-cni-node     --timeout=180s
 ```
 
-> **Why those flags?** Vanilla `istioctl install --set profile=ambient` writes the CNI to `/opt/cni/...`, which k3s does not use. The flags above point Istio to k3s's actual CNI directories — without them `istio-cni-node` will be `Running` but install no network rules, and the mesh will silently fail to capture traffic.
+If the ztunnel pods fail with `failed to find plugin "istio-cni" in path [...]`,
+check the error's path and use that as `cniBinDir`.
 
----
-
-### Step 4 — Install Prometheus and tell it to scrape Istio
+### 3. Install Prometheus + tell it to scrape Istio
 
 ```bash
-helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
-helm repo update
+curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
 
+helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
 helm upgrade --install prom prometheus-community/kube-prometheus-stack \
     -n monitoring --create-namespace \
-    --set grafana.enabled=false \
-    --set alertmanager.enabled=false \
+    --set grafana.enabled=false --set alertmanager.enabled=false \
     --set prometheus.prometheusSpec.retention=2h \
     --set prometheus.prometheusSpec.serviceMonitorSelectorNilUsesHelmValues=false \
     --set prometheus.prometheusSpec.podMonitorSelectorNilUsesHelmValues=false
 
-kubectl -n monitoring rollout status \
-    statefulset/prometheus-prom-kube-prometheus-stack-prometheus --timeout=300s
-```
-
-**Critical:** `kube-prometheus-stack` does NOT scrape Istio by default — you have to add three scrape rules manually:
-
-```bash
-cat <<'YAML' | kubectl apply -f -
+# Apply scrape monitors for Istio (NOT shipped by default in kube-prometheus-stack)
+kubectl apply -f - <<'YAML'
 apiVersion: monitoring.coreos.com/v1
 kind: PodMonitor
-metadata: { name: istio-waypoints, namespace: monitoring }
+metadata: {name: istio-waypoints, namespace: monitoring}
 spec:
-  namespaceSelector: { any: true }
+  namespaceSelector: {any: true}
   selector:
-    matchLabels: { gateway.istio.io/managed: istio.io-mesh-controller }
+    matchLabels: {gateway.istio.io/managed: istio.io-mesh-controller}
   podMetricsEndpoints:
   - path: /stats/prometheus
     interval: 15s
@@ -166,58 +194,45 @@ spec:
 ---
 apiVersion: monitoring.coreos.com/v1
 kind: PodMonitor
-metadata: { name: istio-ztunnel, namespace: monitoring }
+metadata: {name: istio-ztunnel, namespace: monitoring}
 spec:
-  namespaceSelector: { matchNames: [istio-system] }
-  selector: { matchLabels: { app: ztunnel } }
+  namespaceSelector: {matchNames: [istio-system]}
+  selector: {matchLabels: {app: ztunnel}}
   podMetricsEndpoints:
-  - { port: ztunnel-stats, path: /metrics, interval: 15s }
+  - {port: ztunnel-stats, path: /metrics, interval: 15s}
 ---
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
-metadata: { name: istiod, namespace: monitoring }
+metadata: {name: istiod, namespace: monitoring}
 spec:
-  namespaceSelector: { matchNames: [istio-system] }
-  selector: { matchLabels: { app: istiod } }
+  namespaceSelector: {matchNames: [istio-system]}
+  selector: {matchLabels: {app: istiod}}
   endpoints:
-  - { port: http-monitoring, interval: 15s }
+  - {port: http-monitoring, interval: 15s}
 YAML
+
+# Port-forward so DA-DQN agents (in-cluster) AND local scripts can query
+nohup kubectl -n monitoring port-forward svc/prom-kube-prometheus-stack-prometheus \
+      9090:9090 --address 127.0.0.1 >/tmp/prompf.log 2>&1 &
 ```
 
-**Verify Prometheus is scraping Istio:**
+### 4. Deploy Online Boutique + ambient enrollment
 
 ```bash
-kubectl -n monitoring port-forward svc/prom-kube-prometheus-stack-prometheus 9090:9090 &
-curl -s 'http://localhost:9090/api/v1/query?query=count(\{__name__=~"istio.*"\})' | head -c 200
-kill %1
-```
-
-You should see a non-zero `value`. If it returns `0`, the PodMonitors didn't match — re-check `kubectl -n monitoring get podmonitor`.
-
----
-
-### Step 5 — Deploy Online Boutique into the ambient mesh
-
-```bash
-# 1) apply the upstream manifests in the default namespace
 kubectl apply -n default -f \
     https://raw.githubusercontent.com/GoogleCloudPlatform/microservices-demo/main/release/kubernetes-manifests.yaml
 
-# 2) enroll the namespace in the ambient mesh (L4 mTLS + metrics, zero config)
 kubectl label namespace default istio.io/dataplane-mode=ambient --overwrite
 
-# 3) wait for the deployments to come up (~3-6 min)
+# Disable the built-in loadgenerator (we use Locust externally)
+kubectl -n default scale deploy loadgenerator --replicas=0
+
 for d in $(kubectl -n default get deploy -o name); do
   kubectl -n default rollout status "$d" --timeout=360s
 done
-
-# 4) get the frontend NodePort so you can hit the app
-kubectl -n default get svc frontend
 ```
 
-Hit `http://<any-node-public-ip>:<frontend-NodePort>` in a browser — you should see the Online Boutique shop. **If this works, the mesh is healthy.**
-
-**Add L7 waypoints for all 10 services** (needed so the agent gets per-service HTTP/gRPC latency, not just TCP byte counts):
+### 5. Add waypoints (per-service L7 metrics) + Istio Gateway for external traffic
 
 ```bash
 for pair in adservice:ad-waypoint cartservice:cart-waypoint \
@@ -230,157 +245,184 @@ for pair in adservice:ad-waypoint cartservice:cart-waypoint \
   kubectl -n default label svc "$svc" istio.io/use-waypoint="$wp" --overwrite
 done
 
-kubectl -n default get gateways
-# All 10 should show: PROGRAMMED=True
-```
-
-> **Why the naming?** The waypoint name **must not** match an existing Service name. If you name a waypoint `frontend` while a Service `frontend` exists, the Gateway controller tries to bind to that Service's port 15008 (which doesn't exist) and you get `AddressNotUsable`. Convention: `<svc>-waypoint`.
-
-**Expose frontend via Istio ingress Gateway** (so external HTTP enters the mesh and the agent sees real end-to-end p95). Without this, external NodePort traffic bypasses the mesh and the agent's `frontend_latency_ms` only reflects backend hops (~10 ms, way under-reporting reality).
-
-```bash
-# 1) replace the NodePort frontend-external Service with an Istio Gateway
+# Replace the boutique's NodePort with an Istio Gateway (so external traffic
+# enters via the mesh and we see real client-side p95)
 kubectl -n default delete svc frontend-external --ignore-not-found
-
-cat <<'YAML' | kubectl apply -f -
+kubectl apply -f - <<'YAML'
 apiVersion: gateway.networking.k8s.io/v1
 kind: Gateway
-metadata: { name: frontend-gateway, namespace: default }
+metadata: {name: frontend-gateway, namespace: default}
 spec:
   gatewayClassName: istio
   listeners:
-  - { name: http, port: 80, protocol: HTTP, allowedRoutes: { namespaces: { from: Same } } }
+  - {name: http, port: 80, protocol: HTTP, allowedRoutes: {namespaces: {from: Same}}}
 ---
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
-metadata: { name: frontend-route, namespace: default }
+metadata: {name: frontend-route, namespace: default}
 spec:
-  parentRefs: [{ name: frontend-gateway }]
+  parentRefs: [{name: frontend-gateway}]
   rules:
-  - matches: [{ path: { type: PathPrefix, value: / } }]
-    backendRefs: [{ name: frontend, port: 80 }]
+  - matches: [{path: {type: PathPrefix, value: /}}]
+    backendRefs: [{name: frontend, port: 80}]
 YAML
 
-# 2) patch the auto-created Gateway Service to NodePort 30193 (your old port)
 kubectl -n default patch svc frontend-gateway-istio --type=json -p='[
   {"op":"replace","path":"/spec/ports","value":[
     {"name":"status-port","port":15021,"protocol":"TCP","targetPort":15021},
     {"name":"http","port":80,"protocol":"TCP","targetPort":80,"nodePort":30193}
-  ]}]'
+  ]},{"op":"replace","path":"/spec/type","value":"NodePort"}]'
 
-# 3) tell Prometheus to scrape the ingress Gateway's Envoy stats
-cat <<'YAML' | kubectl apply -f -
+# Apply ingress gateway scrape monitor + force frontend to use new waypoints
+kubectl apply -f - <<'YAML'
 apiVersion: monitoring.coreos.com/v1
 kind: PodMonitor
-metadata: { name: istio-ingress-gateways, namespace: monitoring }
+metadata: {name: istio-ingress-gateways, namespace: monitoring}
 spec:
-  namespaceSelector: { any: true }
-  selector:
-    matchLabels: { istio.io/gateway-name: frontend-gateway }
+  namespaceSelector: {any: true}
+  selector: {matchLabels: {istio.io/gateway-name: frontend-gateway}}
   podMetricsEndpoints:
-  - { path: /stats/prometheus, interval: 10s, relabelings: [
-      { action: keep, sourceLabels: [__meta_kubernetes_pod_container_port_name], regex: "http-envoy-prom" }
-    ]}
+  - {path: /stats/prometheus, interval: 10s, relabelings: [
+      {action: keep, sourceLabels: [__meta_kubernetes_pod_container_port_name], regex: "http-envoy-prom"}]}
 YAML
-
-# 4) force frontend to re-establish gRPC connections through the new waypoints
-#    (frontend pods that started BEFORE waypoints were applied use long-lived
-#     gRPC clients that skip the waypoint and emit no per-service mesh metrics)
 kubectl -n default rollout restart deploy frontend
 ```
 
----
-
-### Step 6 — Deploy the DA-DQN autoscaler (the part this repo is about)
+Verify:
 
 ```bash
-# back on your laptop:
-git clone https://github.com/sajid8222/swarmchestrate-dadqn-autoscaler.git
-cd swarmchestrate-dadqn-autoscaler
+curl -s -o /dev/null -w "HTTP %{http_code}\n" http://<CP-PUBLIC-IP>:30193/
+# expect HTTP 200
+```
 
-# point kubectl at the k3s cluster (copy kubeconfig from node1, replace 127.0.0.1 with node1's public IP)
-scp node1:/etc/rancher/k3s/k3s.yaml ./kubeconfig.yaml
-sed -i "s|server: https://127.0.0.1:6443|server: https://<node1-public-ip>:6443|" ./kubeconfig.yaml
-export KUBECONFIG=$PWD/kubeconfig.yaml
+### 6. Deploy DA-DQN agents
 
-# apply the 4 manifests
+**Stage models on every worker** (DA-DQN pods mount them via hostPath):
+
+```bash
+for w in <worker-ip-1> <worker-ip-2> ...; do
+  ssh ubuntu@$w 'mkdir -p /tmp/sla_v1'
+  scp models/sla_v1/*.zip ubuntu@$w:/tmp/sla_v1/
+done
+```
+
+**Apply the agent manifests:**
+
+```bash
+# The 3 ConfigMaps below mount over the public image's old source code.
+# (If you rebuilt the image from this repo, you can skip these — see Dockerfile.)
+kubectl -n default create configmap mc-v3-patch \
+    --from-file=metrics_collector_v3.py=dadqn_v3/environments/metrics_collector_v3.py
+kubectl -n default create configmap sg-v2-patch \
+    --from-file=service_graph.py=dadqn_v3/service_graph.py
+kubectl -n default create configmap sae-v4-patch \
+    --from-file=service_agent_env.py=dadqn_v3/environments/service_agent_env.py
+
 kubectl apply -f manifests/
-kubectl wait --for=condition=Ready pod -l app=dadqn-autoscaler --timeout=60s
-kubectl logs -f deployment/dadqn-autoscaler
+kubectl -n default wait --for=condition=Available deploy -l app=dadqn-autoscaler --timeout=180s
+kubectl -n default get pods -l app=dadqn-autoscaler -o wide
 ```
 
-Within ~60 seconds you should see:
+### 7. Run a load test
+
+On any machine that can reach the cluster (laptop or a node):
+
+```bash
+pip install locust pandas
+
+WORKLOAD_CSV=workloads/rps-200.csv DURATION_S=600 SPAWN_RATE=10 \
+  locust -f locust/wiki_locustfile.py \
+         --host http://<CP-PUBLIC-IP>:30193 \
+         --web-host 0.0.0.0 --web-port 8089 \
+         --autostart --autoquit 5
+```
+
+Watch agents react:
+
+```bash
+bash scripts/monitor.sh
+# or per-service:
+kubectl -n default logs deploy/dadqn-frontend  -f
+```
+
+You should see lines like:
 
 ```
-loading model: /app/dadqn_v3/models/finetuned_v3_actual
-sample=30s decision=15s cooldown=90s csv=/data/wiki_dadqn_serve_<ts>.csv
-t=    0s users=   0 rps=  0.0 p95=     0ms pods= 11 viol=0
-  decision: scaled to {'frontend': 1, 'currencyservice': 1, ...}
+decision: scaled to {'frontend': 9}
+decision: scaled to {'cartservice': 6}
+decision: scaled to {'productcatalogservice': 9}
 ```
 
-That's the agent sampling Prometheus every 30 s and issuing scaling decisions every 15 s — **running inside the cluster**, no SSH, no laptop kubectl needed once it's deployed.
+Each agent only writes its own service — **proof of decentralization**.
 
 ---
 
-### Step 7 — Generate load with Locust and watch it autoscale
+## Configuration
 
-On any node (the worker is a good choice), install Locust and run a CSV-driven workload:
+`manifests/03-configmap.yaml` exposes these env vars (override per environment):
 
-```bash
-pip install locust
-git clone https://github.com/sajid8222/swarmchestrate-dadqn-autoscaler.git ~/dadqn   # for the workloads/
-cd ~/dadqn
+| Variable | Default | Meaning |
+|---|---|---|
+| `PROMETHEUS_URL` | in-cluster Prometheus svc | Where agents query metrics |
+| `PROM_RATE_WINDOW` | `1m` | PromQL rate window |
+| `K8S_NAMESPACE` | `default` | Boutique namespace |
+| `SAMPLE_INTERVAL_SEC` | `30` | How often agents collect metrics |
+| `DECISION_INTERVAL_SEC` | `15` | How often agents pick an action |
+| `SCALE_DOWN_COOLDOWN_SEC` | `30` | Min sec between scale-up → scale-down |
+| `LOCUST_URL` | unset | If set, used for frontend client-side p95 |
 
-CSV_PATH=workloads/rps-600.csv TIME_MINUTE=10 SPAWN_RATE=20 \
-  locust -f wiki_locustfile.py \
-         --host http://localhost:<frontend-NodePort> \
-         --autostart --autoquit 5 \
-         --web-host 0.0.0.0 --web-port 8089
-```
-
-While it runs, watch the agent in another terminal:
-
-```bash
-kubectl logs -f deployment/dadqn-autoscaler
-
-# in a second terminal — watch pod counts grow under load and shrink after
-watch -n2 'kubectl -n default get deploy'
-```
-
-You should see:
-- `frontend` replicas jump from 1 → 2 or 3 as RPS climbs.
-- `recommendationservice` / `productcatalogservice` follow.
-- After Locust finishes, replicas slowly scale back to 1.
+Per-pod startup patches in `manifests/04-deployment.yaml` further set:
+`MAX_REPLICAS=9`, `MAX_TOTAL_PODS=90`, `NORM_BOUNDS[cpu_usage]=3000`,
+`NORM_BOUNDS[latency]=1500`, `ALL_SERVICES` to the full 10+redis-cart list.
 
 ---
 
-### Step 8 — Pull out the experiment data
+## Verifying decentralization
 
 ```bash
-POD=$(kubectl get pod -l app=dadqn-autoscaler -o jsonpath='{.items[0].metadata.name}')
+# 10 pods, one per service
+kubectl -n default get pods -l app=dadqn-autoscaler -o custom-columns=POD:.metadata.name,SVC:.metadata.labels.svc
 
-# CSV (one row per 30 s sample)
-kubectl cp default/$POD:/data ./agent_data/
+# Each pod has its own MY_SERVICE env
+for svc in frontend cartservice currencyservice; do
+  POD=$(kubectl -n default get pod -l app=dadqn-autoscaler,svc=$svc -o jsonpath='{.items[0].metadata.name}')
+  echo "$POD: MY_SERVICE=$(kubectl -n default exec $POD -- printenv MY_SERVICE)"
+done
 
-# full agent log
-kubectl logs deployment/dadqn-autoscaler --tail=10000 > agent.log
+# Each agent's log shows decisions for ITS OWN service ONLY
+for svc in frontend cartservice productcatalogservice; do
+  POD=$(kubectl -n default get pod -l app=dadqn-autoscaler,svc=$svc -o jsonpath='{.items[0].metadata.name}')
+  echo "--- $svc agent ---"
+  kubectl -n default logs $POD --tail=5 | grep decision
+done
 ```
-
-The CSV columns: `step, sec, rps, locust_users, locust_p95_ms, frontend_latency_ms, total_pods, sla_violation, <service>_pods × 10`.
-
-You're done — that's a complete autoscaling experiment.
 
 ---
 
-## Quick start (3 commands, cluster already set up)
+## Training methodology
 
-If your cluster already has Online Boutique + Istio ambient + Prometheus:
+Models in `models/sla_v1/` were trained against the V4 cascade reward
+(SLA + resource utilization + cascade neighbour signal) using simulator
+closed-loop episodes built from real Boutique observation data. Details in
+[docs/architecture.md](docs/architecture.md). The reward weights, observation
+layout, and sim training script are reproducible — open an issue if you want
+to retrain on your own cluster's data distribution.
 
-```bash
-git clone https://github.com/sajid8222/swarmchestrate-dadqn-autoscaler.git
-cd swarmchestrate-dadqn-autoscaler
-kubectl apply -f manifests/
-kubectl wait --for=condition=Ready pod -l app=dadqn-autoscaler --timeout=60s
-kubectl logs -f deployment/dadqn-autoscaler
-```
+---
 
+## Repro tips & gotchas
+
+- **t3.medium / t2.large clusters work**, but smaller workers (≤ 4 GiB RAM)
+  may not have enough capacity for the agents' chosen replica counts. You'll
+  see pods in `Pending` state — that's a hardware ceiling, not an agent bug.
+- **`preflight_full.sh` after VM stop/start**: Istio mesh state, Prometheus scrape
+  targets, and waypoint pod counts often need a rolling restart. The script
+  handles all three.
+- **Image build**: the public image `proactivellmbasedproject/dadqn-autoscaler:v2`
+  contains an OLDER snapshot of `dadqn_v3/`. The 3 ConfigMaps in `manifests/`
+  mount patched files over it. If you rebuild from this repo's Dockerfile, you
+  can drop the ConfigMap mounts.
+
+## License
+
+MIT.

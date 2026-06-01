@@ -12,10 +12,10 @@
 #   gRPC_RPM / gRPC_mean / gRPC_p95  — internal (pod-to-pod) gRPC traffic.
 #                                      This is what shows backend services are busy.
 #   CPU_m / MEM_Mi / PODS            — pod usage + replica count.
-# SLA reference: 1200 ms (compare against HTTP_p95 / gRPC_p95).
+# SLA reference: 500 ms (compare against HTTP_p95 / gRPC_p95).
 set -u
 SLEEP="${SLEEP:-5}"
-NODE_IP="${NODE_IP:-3.239.119.17}"
+NODE_IP="${NODE_IP:-34.204.199.255}"
 PEM="${PEM:-/home/sajid_40020095/Sajid_node_USA_4.pem}"
 SSH="ssh -i $PEM -o ConnectTimeout=6 -o StrictHostKeyChecking=no -o ServerAliveInterval=20 ubuntu@$NODE_IP"
 SERVICES="frontend currencyservice productcatalogservice cartservice adservice checkoutservice emailservice paymentservice shippingservice recommendationservice"
@@ -40,7 +40,14 @@ while true; do
     NMEM=\$(q '(1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100')
     NLOAD=\$(q 'node_load1')
     TOTAL_PODS=\$(echo \"\$PODS\" | grep -c Running)
-    printf 'NODE   CPU=%s%%   MEM=%s%%   load1=%s   pods total=%s\n' \"\$(norm \"\$NCPU\")\" \"\$(norm \"\$NMEM\")\" \"\$(norm \"\$NLOAD\")\" \"\$TOTAL_PODS\"
+    # ── Gateway (client-side end-to-end, what Locust really sees) ────
+    GWP95=\$(q 'histogram_quantile(0.95, sum by(le)(rate(istio_request_duration_milliseconds_bucket{source_workload=~\".*-gateway-istio\",destination_workload=\"frontend\"}[1m])))')
+    GWRPS=\$(q 'sum(rate(istio_requests_total{source_workload=~\".*-gateway-istio\",destination_workload=\"frontend\"}[1m]))')
+    DA_DEP=\$(sudo k3s kubectl -n default get deploy dadqn-autoscaler --no-headers 2>/dev/null | wc -l)
+    HPA_CNT=\$(sudo k3s kubectl -n default get hpa --no-headers 2>/dev/null | wc -l)
+    SCALER=\$( [ \$DA_DEP -gt 0 ] && echo DA-DQN || ( [ \$HPA_CNT -gt 0 ] && echo \"KHPA(\${HPA_CNT}hpa)\" || echo NONE ) )
+    printf 'NODE   CPU=%s%%   MEM=%s%%   load1=%s   pods total=%s   scaler=%s\n' \"\$(norm \"\$NCPU\")\" \"\$(norm \"\$NMEM\")\" \"\$(norm \"\$NLOAD\")\" \"\$TOTAL_PODS\" \"\$SCALER\"
+    printf 'CLIENT gw_p95=%sms   gw_RPS=%s   SLA=500ms   (this is what Locust/users see)\n' \"\$(norm \"\$GWP95\")\" \"\$(norm \"\$GWRPS\")\"
     echo
 
     printf '%-22s | %9s %9s %9s | %9s %9s %9s | %6s %7s %5s\n' \
@@ -60,12 +67,22 @@ while true; do
         \"\$svc\" \"\$(norm \"\$hr\")\" \"\$(norm \"\$hl\")\" \"\$(norm \"\$hp\")\" \"\$(norm \"\$gr\")\" \"\$(norm \"\$gl\")\" \"\$(norm \"\$gp\")\" \"\$cpu\" \"\$mem\" \"\$pods\"
     done
     echo
-    echo 'HTTP_mean/gRPC_mean = arithmetic mean. HTTP_p95/gRPC_p95 = 95th percentile (SLA = 1200 ms).'
+    echo 'HTTP_mean/gRPC_mean = arithmetic mean. HTTP_p95/gRPC_p95 = 95th percentile (SLA = 500 ms).'
     echo 'Note: external HTTP from Locust hits frontend via NodePort (not via mesh), so frontend HTTP_* stays \"-\".'
     echo 'End-user p95 (client side): open http://localhost:8089 → Latency tab while Locust is running.'
     echo
     echo '=== Waypoint CPU (out of 2000m limit each) ==='
     sudo k3s kubectl top pod -n \$NS --no-headers 2>/dev/null | grep waypoint | awk '{ printf \"  %-25s %6s %8s\n\", \$1, \$2, \$3 }'
   " 2>/dev/null
+  # ── Locust UI status (this laptop) ─────────────────────────────────
+  LSTATUS=$(curl -s --max-time 2 "http://localhost:8089/stats/requests" 2>/dev/null \
+    | python3 -c "import sys,json
+try:
+    d=json.load(sys.stdin)
+    print(f\"  users={d.get('user_count','?')}  state={d.get('state','?')}\")
+except: print('  no response (segment not running)')" 2>/dev/null)
+  [ -z "$LSTATUS" ] && LSTATUS="  port 8089 not listening (between segments OR sweep stopped)"
+  echo
+  echo "Locust UI: http://localhost:8089  →$LSTATUS"
   sleep "$SLEEP"
 done

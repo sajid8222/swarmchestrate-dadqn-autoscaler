@@ -1,39 +1,29 @@
+"""V4-patched metrics_collector_v3.py — all Prometheus, no kubectl subprocess.
+
+Fixes vs base (per fresh_starts study memory):
+  1. CPU/MEM/pods now read from Prometheus (kube-state-metrics + cadvisor) — the
+     dadqn image has NO kubectl binary so _kubectl_top returned all zeros, killing
+     resource-target scaling. Replaces _kubectl_top subprocess kubectl calls.
+  2. Per-service LATENCY = P95 histogram (matches what the v4 model was trained on,
+     not the MEAN that the base file used).
+  3. Frontend latency falls back to GATEWAY P95 directly (instead of needing the
+     external p95_shim served via Locust JSON).
+
+Pod regex `<svc>-[a-z0-9]+-[a-z0-9]+` matches ReplicaSet-managed pods only — avoids
+counting `frontend-gateway-istio-...` (more segments) as frontend pods.
 """
-Live-cluster metrics collector for DA-DQN v3.
-
-Same logic as dadqn/environments/metrics_collector.py but uses dadqn_v3.config
-imports (no dependency on the legacy `decentralized` package).
-
-Returns per-service metrics in the same dict format the simulator uses.
-"""
-
 import logging
 import os
-import subprocess
-
 import requests
 
-from dadqn_v3.config import (
-    ALL_SERVICES, MIN_REPLICAS,
-)
+from dadqn_v3.config import ALL_SERVICES, MIN_REPLICAS  # noqa: F401
 
 logger = logging.getLogger(__name__)
 
 PROMETHEUS_URL = os.environ.get("PROMETHEUS_URL", "http://localhost:9090")
-PROM_RATE_WINDOW = os.environ.get("PROM_RATE_WINDOW", "2m")
+PROM_RATE_WINDOW = os.environ.get("PROM_RATE_WINDOW", "1m")
 NAMESPACE = os.environ.get("K8S_NAMESPACE", "default")
-KUBECONFIG = os.environ.get("KUBECONFIG", os.path.expanduser("~/.kube/config"))
-LOCUST_URL = os.environ.get("LOCUST_URL", "http://localhost:8089")
-
-# Fix-2: when Istio mesh returns 0 (broken/missing waypoints), derive
-# traffic_in/latency from kubectl-top CPU and Locust frontend latency.
-# Off by default to preserve original behaviour for tests that depend on
-# raw mesh data; enabled by setting OBS_FALLBACK_FROM_CPU=1.
-OBS_FALLBACK_FROM_CPU = os.environ.get("OBS_FALLBACK_FROM_CPU", "0") == "1"
-# Empirical: ~50 RPM per millicore CPU at light boutique loads
-CPU_TO_RPM = float(os.environ.get("CPU_TO_RPM", "50"))
-# Backend service latency typically 30–60 % of frontend p95 in this app
-BACKEND_LAT_FRACTION = float(os.environ.get("BACKEND_LAT_FRACTION", "0.5"))
+LOCUST_URL = os.environ.get("LOCUST_URL", "").strip()
 
 
 class MetricsCollectorV3:
@@ -54,6 +44,8 @@ class MetricsCollectorV3:
         return 0.0
 
     def _get_locust_p95(self) -> float:
+        if not LOCUST_URL:
+            return 0.0
         try:
             resp = requests.get(f"{LOCUST_URL}/stats/requests", timeout=3)
             data = resp.json()
@@ -70,61 +62,37 @@ class MetricsCollectorV3:
             logger.debug(f"Locust query failed: {e}")
         return 0.0
 
+    def _gateway_p95_ms(self) -> float:
+        return self._prom_query(
+            f'histogram_quantile(0.95, sum by(le)(rate('
+            f'istio_request_duration_milliseconds_bucket{{'
+            f'source_workload=~".*-gateway-istio",destination_workload="frontend"'
+            f'}}[{PROM_RATE_WINDOW}])))')
+
     def get_service_metrics(self, svc: str) -> dict:
-        # Latency: Locust p95 for frontend, Prometheus for others.
-        # In production an external load tester is rarely reachable from
-        # the cluster, so we fall back to the Istio ingress Gateway's
-        # request_duration metric — it captures end-to-end client p95 for
-        # every external request and is the canonical production source.
+        # ── Latency ──
         if svc == "frontend":
+            # Trained signal: client-side gateway p95 (or Locust shim if set)
             lat = self._get_locust_p95()
             if lat <= 0:
-                lat = self._prom_query(
-                    f'histogram_quantile(0.95, sum by(le) (rate('
-                    f'istio_request_duration_milliseconds_bucket{{'
-                    f'source_workload=~".*-gateway-istio",'
-                    f'destination_workload="frontend"'
-                    f'}}[{PROM_RATE_WINDOW}])))')
+                lat = self._gateway_p95_ms()
                 if lat > 0:
                     logger.warning(f"Locust unavailable, using Gateway p95 ({lat:.1f}ms)")
-                else:
-                    # Final fallback: frontend's backend gRPC mean latency
-                    lat = self._prom_query(
-                        f'max(sum by (destination_workload) '
-                        f'(rate(istio_request_duration_milliseconds_sum{{'
-                        f'source_workload="frontend",destination_workload!="unknown"}}[{PROM_RATE_WINDOW}])) '
-                        f'/ sum by (destination_workload) '
-                        f'(rate(istio_request_duration_milliseconds_count{{'
-                        f'source_workload="frontend",destination_workload!="unknown"}}[{PROM_RATE_WINDOW}])))')
         else:
+            # V4 PATCH: per-service P95 (NOT mean — the model was trained on p95)
             lat = self._prom_query(
-                f'sum(rate(istio_request_duration_milliseconds_sum{{'
-                f'destination_workload="{svc}"}}[{PROM_RATE_WINDOW}]))'
-                f'/sum(rate(istio_request_duration_milliseconds_count{{'
-                f'destination_workload="{svc}"}}[{PROM_RATE_WINDOW}]))')
+                f'histogram_quantile(0.95, sum by(le)(rate('
+                f'istio_request_duration_milliseconds_bucket{{'
+                f'destination_workload="{svc}"}}[{PROM_RATE_WINDOW}])))')
 
-        # Traffic
+        # ── Traffic (req/min) ──
         traffic_in = self._prom_query(
             f'sum(rate(istio_requests_total{{destination_workload="{svc}"}}[{PROM_RATE_WINDOW}]))*60')
         traffic_out = self._prom_query(
             f'sum(rate(istio_requests_total{{source_workload="{svc}"}}[{PROM_RATE_WINDOW}]))*60')
 
-        cpu, mem, pods = self._kubectl_top(svc)
-
-        # Fix-2 fallbacks (env-gated). Triggered only when mesh returned 0,
-        # which on this k3s cluster happens for every service except the one
-        # that has a working waypoint. Without these fallbacks the agents
-        # observe traffic_in=0/latency=0 for ~9 of 10 services and refuse to
-        # scale them. Use kubectl-top CPU + Locust frontend latency as proxies.
-        if OBS_FALLBACK_FROM_CPU:
-            if traffic_in <= 0 and cpu > 0:
-                traffic_in = cpu * CPU_TO_RPM
-            if traffic_out <= 0 and cpu > 0:
-                traffic_out = cpu * CPU_TO_RPM * 0.6
-            if svc != "frontend" and lat <= 0:
-                fe = self._get_locust_p95()
-                if fe > 0:
-                    lat = fe * BACKEND_LAT_FRACTION
+        # ── Resource (Prometheus-based; image has no kubectl) ──
+        cpu, mem, pods = self._prom_resources(svc)
 
         return {
             "num_pods": pods,
@@ -135,32 +103,24 @@ class MetricsCollectorV3:
             "latency": lat,
         }
 
-    def _kubectl_top(self, svc: str) -> tuple[float, float, int]:
-        cpu_total, mem_total, pod_count = 0.0, 0.0, 0
-        env = {"KUBECONFIG": KUBECONFIG, "PATH": "/usr/local/bin:/usr/bin:/bin"}
-        try:
-            result = subprocess.run(
-                ["kubectl", "get", "pod", "-n", NAMESPACE, "--no-headers"],
-                capture_output=True, text=True, timeout=10, env=env)
-            for line in result.stdout.strip().split("\n"):
-                if svc in line and "Running" in line:
-                    pod_count += 1
+    def _prom_resources(self, svc: str) -> tuple:
+        # Pod regex `<svc>-[a-z0-9]+-[a-z0-9]+` — RS-managed pods only.
+        # Excludes `frontend-gateway-istio-...` (more segments) etc.
+        pod_re = f'{svc}-[a-z0-9]+-[a-z0-9]+'
 
-            result = subprocess.run(
-                ["kubectl", "top", "pod", "-n", NAMESPACE, "--no-headers"],
-                capture_output=True, text=True, timeout=10, env=env)
-            for line in result.stdout.strip().split("\n"):
-                if svc in line:
-                    parts = line.split()
-                    if len(parts) >= 3:
-                        try:
-                            cpu_total += float(parts[1].replace("m", ""))
-                        except ValueError:
-                            pass
-                        try:
-                            mem_total += float(parts[2].replace("Mi", ""))
-                        except ValueError:
-                            pass
-        except Exception as e:
-            logger.debug(f"kubectl failed for {svc}: {e}")
-        return cpu_total, mem_total, max(pod_count, 1)
+        cpu_m = self._prom_query(
+            f'sum(rate(container_cpu_usage_seconds_total{{'
+            f'namespace="{NAMESPACE}",pod=~"{pod_re}",'
+            f'container!="POD",container!=""'
+            f'}}[{PROM_RATE_WINDOW}])) * 1000')
+
+        mem_mi = self._prom_query(
+            f'sum(container_memory_working_set_bytes{{'
+            f'namespace="{NAMESPACE}",pod=~"{pod_re}",'
+            f'container!="POD",container!=""'
+            f'}}) / (1024*1024)')
+
+        pods = self._prom_query(
+            f'count(kube_pod_info{{namespace="{NAMESPACE}",pod=~"{pod_re}"}})')
+
+        return cpu_m, mem_mi, max(int(pods) if pods > 0 else 1, MIN_REPLICAS)

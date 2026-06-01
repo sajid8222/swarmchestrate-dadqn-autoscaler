@@ -14,8 +14,18 @@ from gymnasium import spaces
 
 from dadqn_v3.config import (
     NUM_ACTIONS, STEPS_PER_EPISODE, SCALABLE_SERVICES, ALL_SERVICES,
-    MIN_REPLICAS, MAX_REPLICAS, NORM_BOUNDS,
+    MIN_REPLICAS, MAX_REPLICAS, NORM_BOUNDS, SERVICE_RESOURCES,
 )
+
+# CPU/mem UTILIZATION normalization: feed util = usage/(limit*pods) so the signal means the
+# same "% loaded" for every service regardless of its absolute millicores or limit size
+# (raw cpu_usage made small-limit services like productcatalog look idle at 220% util). 50%
+# target -> 0.25, 100% -> 0.5, >=200% -> 1.0.
+_UTIL_NORM = 2.0
+def _util_feat(usage, limit, pods):
+    if limit <= 0 or pods <= 0:
+        return 0.0
+    return float(min((usage / (limit * pods)) / _UTIL_NORM, 1.0))
 from dadqn_v3.service_graph import (
     get_observation_dim, KAPPA_NEIGHBOR_MAP, DECAY_WEIGHTS,
 )
@@ -81,20 +91,24 @@ class ServiceAgentEnv(gym.Env):
         obs = []
         m = self.shared_state.metrics.get(self.service_name, {})
 
-        # Own 6 metrics (no desired_replicas — avoids KHPA leakage)
+        # Own 6 metrics. cpu/mem are now UTILIZATION (usage/limit/pods), comparable across services.
+        own_res = SERVICE_RESOURCES.get(self.service_name, {"cpu_limit_m": 200, "mem_limit_mi": 128})
+        own_pods = max(int(m.get("num_pods", 1)), 1)
         obs.append(self._norm(m.get("num_pods", 1), "pod_count"))
-        obs.append(self._norm(m.get("cpu_usage", 0), "cpu_usage"))
-        obs.append(self._norm(m.get("mem_usage", 0), "mem_usage"))
+        obs.append(_util_feat(m.get("cpu_usage", 0), own_res["cpu_limit_m"], own_pods))
+        obs.append(_util_feat(m.get("mem_usage", 0), own_res["mem_limit_mi"], own_pods))
         obs.append(self._norm(m.get("traffic_in", 0), "traffic_in"))
         obs.append(self._norm(m.get("traffic_out", 0), "traffic_out"))
         obs.append(self._norm(m.get("latency", 0), "latency"))
 
-        # κ-hop neighbor features (decay-weighted)
+        # κ-hop neighbor (caller) features (decay-weighted): caller latency, caller CPU util, caller pods
         for neighbor in self.kappa_neighbors:
             w = self.decay_weights.get(neighbor, 0.0)
             nm = self.shared_state.metrics.get(neighbor, {})
+            nres = SERVICE_RESOURCES.get(neighbor, {"cpu_limit_m": 200})
+            npods = max(int(nm.get("num_pods", 1)), 1)
             obs.append(self._norm(nm.get("latency", 0), "latency") * w)
-            obs.append(self._norm(nm.get("cpu_usage", 0), "cpu_usage") * w)
+            obs.append(_util_feat(nm.get("cpu_usage", 0), nres["cpu_limit_m"], npods) * w)
             obs.append(self._norm(nm.get("num_pods", 1), "pod_count") * w)
 
         # Frontend latency (shared SLA signal)

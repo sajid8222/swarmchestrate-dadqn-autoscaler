@@ -1,36 +1,29 @@
-# Python
-.venv/
-venv/
 __pycache__/
 *.pyc
 *.pyo
+*.pyd
+.Python
+*.egg-info/
+*.egg
+.venv/
+venv/
 .pytest_cache/
 .mypy_cache/
-*.egg-info/
-build/
-dist/
-
-# Local k8s/cloud configs (never commit)
-kubeconfig*
-*.kubeconfig
-vms.env
-.env
-*.pem
-*.key
-
-# Local runs / artifacts
-agent_data/
-agent.log
-*.csv
-!workloads/*.csv
-!experiments/workloads/*.csv
-diagnostics/manifest_test_*/
-experiments/results/
-experiments/results_*/
-results_blind_*/
-
-# Editors / OS
+.coverage
+*.swp
+*.bak
+*.log
+.DS_Store
 .idea/
 .vscode/
-.DS_Store
-*.swp
+
+# Local results / runs (researchers shouldn't ship these)
+results*/
+agent_logs*/
+mesh_metrics*/
+locust_*.csv
+plots/
+data/raw/
+data/buffers/
+~/.kube/config.yaml
+kubeconfig.yaml
