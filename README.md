@@ -8,6 +8,8 @@ No central coordinator, no single point of failure.
 Tested on [Online Boutique](https://github.com/GoogleCloudPlatform/microservices-demo)
 running in a k3s cluster with Istio ambient mesh and Prometheus.
 
+**👉 New to this repo? Start with [docs/QUICKSTART.md](docs/QUICKSTART.md)** — full step-by-step setup, deploy, load-test, and troubleshooting in one document.
+
 ---
 
 ## Architecture (V4)
