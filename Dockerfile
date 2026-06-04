@@ -20,8 +20,11 @@ RUN pip install -r requirements.txt
 # Source code (must come AFTER deps for cache reuse)
 COPY dadqn_v3 ./dadqn_v3
 
-# Trained model weights (assumed present in dadqn_v3/models/finetuned_v3_actual/)
-# Verified at runtime: the entrypoint will fail-fast if missing.
+# Trained model weights — baked into the image so the container is
+# self-contained. MODEL_DIR points here; override via env var to use a
+# different path (e.g. for newer weights mounted from a ConfigMap or PV).
+COPY models/sla_v1/ /app/models/sla_v1/
+ENV MODEL_DIR=/app/models/sla_v1
 
 # Mount point for output CSVs (overridden via Volume in Deployment)
 RUN mkdir -p /data

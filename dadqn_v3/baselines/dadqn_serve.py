@@ -138,6 +138,14 @@ def main():
 
     samples_per_decision = max(1, DECISION_INTERVAL_SEC // SAMPLE_INTERVAL_SEC)
     last_scale_up = {svc: 0.0 for svc in SCALABLE_SERVICES}
+    # Idle auto-scaledown: when sustained zero load is observed, override the
+    # policy and force MIN_REPLICAS so the system returns to baseline cost
+    # without waiting for the agent to learn the idle regime. Threshold + tick
+    # count are tunable; 1 tick == SAMPLE_INTERVAL_SEC (default 30s).
+    IDLE_RPS_THRESHOLD = 5.0
+    IDLE_DECISIONS_TO_FORCE = 1
+    idle_decision_count = 0
+    last_seen_rps = None
     logger.info(f"sample={SAMPLE_INTERVAL_SEC}s decision={DECISION_INTERVAL_SEC}s "
                 f"cooldown={SCALE_DOWN_COOLDOWN_SEC}s csv={csv_path}")
 
@@ -169,6 +177,18 @@ def main():
                             if raw > cur:
                                 last_scale_up[svc] = now
                     proposed = env._enforce_budget(proposed)
+                    # Idle auto-scaledown: count consecutive low-RPS decisions
+                    # and force MIN_REPLICAS once the threshold is reached.
+                    if last_seen_rps is not None:
+                        if last_seen_rps < IDLE_RPS_THRESHOLD:
+                            idle_decision_count += 1
+                        else:
+                            idle_decision_count = 0
+                    if idle_decision_count >= IDLE_DECISIONS_TO_FORCE:
+                        forced = {sv: MIN_REPLICAS for sv in SCALABLE_SERVICES}
+                        if forced != proposed:
+                            logger.info(f"  idle auto-scaledown (idle_decisions={idle_decision_count}, rps={last_seen_rps:.1f}): forcing all to MIN_REPLICAS")
+                        proposed = forced
                     for svc, replicas in proposed.items():
                         if replicas != env.shared_state.replicas.get(svc):
                             scale_deployment(apps_v1, svc, replicas)
@@ -176,6 +196,7 @@ def main():
                     logger.info(f"  decision: scaled to {proposed}")
 
                 s = locust_stats()
+                last_seen_rps = s.get("rps", 0.0)
                 fe_lat = s["p95_ms"] or (env.shared_state.frontend_latency_ms or 0.0)
                 pods = kubectl_pod_counts(core_v1)
                 row = {
