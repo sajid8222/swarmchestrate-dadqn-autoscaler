@@ -30,18 +30,15 @@ spec:
               find /app -name '*.pyc' -delete 2>/dev/null;
               exec python -m dadqn_v3.baselines.dadqn_serve
           env:
-            - {name: MODEL_DIR, value: /mnt/sla_v1}
             - {name: MY_SERVICE, value: frontend}
           envFrom: [{configMapRef: {name: dadqn-config}}]
           volumeMounts:
             - {name: data, mountPath: /data}
-            - {name: sla-models, mountPath: /mnt/sla_v1, readOnly: true}
           resources:
             requests: {cpu: "100m", memory: "256Mi"}
             limits: {cpu: "500m", memory: "1Gi"}
       volumes:
         - {name: data, emptyDir: {}}
-        - {name: sla-models, hostPath: {path: /tmp/sla_v1, type: Directory}}
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -69,18 +66,15 @@ spec:
               find /app -name '*.pyc' -delete 2>/dev/null;
               exec python -m dadqn_v3.baselines.dadqn_serve
           env:
-            - {name: MODEL_DIR, value: /mnt/sla_v1}
             - {name: MY_SERVICE, value: cartservice}
           envFrom: [{configMapRef: {name: dadqn-config}}]
           volumeMounts:
             - {name: data, mountPath: /data}
-            - {name: sla-models, mountPath: /mnt/sla_v1, readOnly: true}
           resources:
             requests: {cpu: "100m", memory: "256Mi"}
             limits: {cpu: "500m", memory: "1Gi"}
       volumes:
         - {name: data, emptyDir: {}}
-        - {name: sla-models, hostPath: {path: /tmp/sla_v1, type: Directory}}
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -108,18 +102,15 @@ spec:
               find /app -name '*.pyc' -delete 2>/dev/null;
               exec python -m dadqn_v3.baselines.dadqn_serve
           env:
-            - {name: MODEL_DIR, value: /mnt/sla_v1}
             - {name: MY_SERVICE, value: productcatalogservice}
           envFrom: [{configMapRef: {name: dadqn-config}}]
           volumeMounts:
             - {name: data, mountPath: /data}
-            - {name: sla-models, mountPath: /mnt/sla_v1, readOnly: true}
           resources:
             requests: {cpu: "100m", memory: "256Mi"}
             limits: {cpu: "500m", memory: "1Gi"}
       volumes:
         - {name: data, emptyDir: {}}
-        - {name: sla-models, hostPath: {path: /tmp/sla_v1, type: Directory}}
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -147,18 +138,15 @@ spec:
               find /app -name '*.pyc' -delete 2>/dev/null;
               exec python -m dadqn_v3.baselines.dadqn_serve
           env:
-            - {name: MODEL_DIR, value: /mnt/sla_v1}
             - {name: MY_SERVICE, value: currencyservice}
           envFrom: [{configMapRef: {name: dadqn-config}}]
           volumeMounts:
             - {name: data, mountPath: /data}
-            - {name: sla-models, mountPath: /mnt/sla_v1, readOnly: true}
           resources:
             requests: {cpu: "100m", memory: "256Mi"}
             limits: {cpu: "500m", memory: "1Gi"}
       volumes:
         - {name: data, emptyDir: {}}
-        - {name: sla-models, hostPath: {path: /tmp/sla_v1, type: Directory}}
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -186,18 +174,15 @@ spec:
               find /app -name '*.pyc' -delete 2>/dev/null;
               exec python -m dadqn_v3.baselines.dadqn_serve
           env:
-            - {name: MODEL_DIR, value: /mnt/sla_v1}
             - {name: MY_SERVICE, value: recommendationservice}
           envFrom: [{configMapRef: {name: dadqn-config}}]
           volumeMounts:
             - {name: data, mountPath: /data}
-            - {name: sla-models, mountPath: /mnt/sla_v1, readOnly: true}
           resources:
             requests: {cpu: "100m", memory: "256Mi"}
             limits: {cpu: "500m", memory: "1Gi"}
       volumes:
         - {name: data, emptyDir: {}}
-        - {name: sla-models, hostPath: {path: /tmp/sla_v1, type: Directory}}
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -225,18 +210,15 @@ spec:
               find /app -name '*.pyc' -delete 2>/dev/null;
               exec python -m dadqn_v3.baselines.dadqn_serve
           env:
-            - {name: MODEL_DIR, value: /mnt/sla_v1}
             - {name: MY_SERVICE, value: checkoutservice}
           envFrom: [{configMapRef: {name: dadqn-config}}]
           volumeMounts:
             - {name: data, mountPath: /data}
-            - {name: sla-models, mountPath: /mnt/sla_v1, readOnly: true}
           resources:
             requests: {cpu: "100m", memory: "256Mi"}
             limits: {cpu: "500m", memory: "1Gi"}
       volumes:
         - {name: data, emptyDir: {}}
-        - {name: sla-models, hostPath: {path: /tmp/sla_v1, type: Directory}}
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -264,18 +246,15 @@ spec:
               find /app -name '*.pyc' -delete 2>/dev/null;
               exec python -m dadqn_v3.baselines.dadqn_serve
           env:
-            - {name: MODEL_DIR, value: /mnt/sla_v1}
             - {name: MY_SERVICE, value: adservice}
           envFrom: [{configMapRef: {name: dadqn-config}}]
           volumeMounts:
             - {name: data, mountPath: /data}
-            - {name: sla-models, mountPath: /mnt/sla_v1, readOnly: true}
           resources:
             requests: {cpu: "100m", memory: "256Mi"}
             limits: {cpu: "500m", memory: "1Gi"}
       volumes:
         - {name: data, emptyDir: {}}
-        - {name: sla-models, hostPath: {path: /tmp/sla_v1, type: Directory}}
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -303,18 +282,15 @@ spec:
               find /app -name '*.pyc' -delete 2>/dev/null;
               exec python -m dadqn_v3.baselines.dadqn_serve
           env:
-            - {name: MODEL_DIR, value: /mnt/sla_v1}
             - {name: MY_SERVICE, value: shippingservice}
           envFrom: [{configMapRef: {name: dadqn-config}}]
           volumeMounts:
             - {name: data, mountPath: /data}
-            - {name: sla-models, mountPath: /mnt/sla_v1, readOnly: true}
           resources:
             requests: {cpu: "100m", memory: "256Mi"}
             limits: {cpu: "500m", memory: "1Gi"}
       volumes:
         - {name: data, emptyDir: {}}
-        - {name: sla-models, hostPath: {path: /tmp/sla_v1, type: Directory}}
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -342,18 +318,15 @@ spec:
               find /app -name '*.pyc' -delete 2>/dev/null;
               exec python -m dadqn_v3.baselines.dadqn_serve
           env:
-            - {name: MODEL_DIR, value: /mnt/sla_v1}
             - {name: MY_SERVICE, value: paymentservice}
           envFrom: [{configMapRef: {name: dadqn-config}}]
           volumeMounts:
             - {name: data, mountPath: /data}
-            - {name: sla-models, mountPath: /mnt/sla_v1, readOnly: true}
           resources:
             requests: {cpu: "100m", memory: "256Mi"}
             limits: {cpu: "500m", memory: "1Gi"}
       volumes:
         - {name: data, emptyDir: {}}
-        - {name: sla-models, hostPath: {path: /tmp/sla_v1, type: Directory}}
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -381,15 +354,12 @@ spec:
               find /app -name '*.pyc' -delete 2>/dev/null;
               exec python -m dadqn_v3.baselines.dadqn_serve
           env:
-            - {name: MODEL_DIR, value: /mnt/sla_v1}
             - {name: MY_SERVICE, value: emailservice}
           envFrom: [{configMapRef: {name: dadqn-config}}]
           volumeMounts:
             - {name: data, mountPath: /data}
-            - {name: sla-models, mountPath: /mnt/sla_v1, readOnly: true}
           resources:
             requests: {cpu: "100m", memory: "256Mi"}
             limits: {cpu: "500m", memory: "1Gi"}
       volumes:
         - {name: data, emptyDir: {}}
-        - {name: sla-models, hostPath: {path: /tmp/sla_v1, type: Directory}}

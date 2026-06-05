@@ -219,19 +219,11 @@ curl -s -o /dev/null -w "gateway HTTP %{http_code}\n" http://<CP-PUBLIC-IP>:3019
 
 ## 3. Deploy DA-DQN agents
 
-### 3A. Stage trained models on every worker
+The trained model weights are **baked into the Docker image** at `/app/models/sla_v1/` (see `Dockerfile`'s `COPY models/sla_v1/` step). No manual staging is needed — each agent pod loads its service's `.zip` directly from the image.
 
-The 10 agent pods mount `/tmp/sla_v1/*.zip` via `hostPath`. Since they schedule freely, every worker needs all 10 zips.
+> **Heads-up if you're forking with custom models:** rebuild the image (`docker build -t <your-registry>/dadqn-autoscaler:<tag> .`) and update `image:` in `manifests/04-deployment.yaml`. The manifests don't mount any `hostPath` for models — models live entirely inside the image.
 
-```bash
-PEM=~/your-key.pem
-for w in <worker1-ip> <worker2-ip> <worker3-ip> <worker4-ip>; do
-  ssh -i $PEM ubuntu@$w 'mkdir -p /tmp/sla_v1'
-  scp -i $PEM models/sla_v1/*.zip ubuntu@$w:/tmp/sla_v1/
-done
-```
-
-### 3B. Apply the agents (single command)
+### 3A. Apply the agents (single command)
 
 From the repo root, with `KUBECONFIG` pointing at the cluster:
 
@@ -245,7 +237,7 @@ The script:
 2. Waits for all 10 deployments to be Available
 3. Prints pod placement + a sample frontend agent log
 
-### 3C. Verify decentralization
+### 3B. Verify decentralization
 
 ```bash
 # All 10 pods Running, one per service
