@@ -286,21 +286,23 @@ python3 -m venv .venv && source .venv/bin/activate && pip install locust pandas
 | `rps-400.csv` | 1700 const | ~340 | Medium load |
 | `rps-600.csv` | 2500 const | ~500 | Heavy / saturation |
 | `rps-c2.csv` | 100→500→100 | 30→165 | Gentle ramp (good for small clusters) |
+| `ramp_500.csv` | 0→500→0 | 0→330 | **Recommended first run** — shows scale-up AND auto-scaledown to 1 |
 
-First time on a small cluster (≤4 workers × 4 GB RAM)? Start with `rps-c2.csv`.
+First time on a small cluster (≤4 workers × 4 GB RAM)? Use `ramp_500.csv` — it ramps from idle, hits a 500-user peak, and drains back to zero so you can watch the **built-in idle auto-scaledown** force all services to MIN_REPLICAS at the end.
 
 ### 4C. Run
 
 ```bash
 cd swarmchestrate-dadqn-autoscaler
 
-WORKLOAD_CSV=workloads/rps-c2.csv \
-DURATION_S=1200 \
-SPAWN_RATE=10 \
+WORKLOAD_CSV=workloads/ramp_500.csv \
+DURATION_S=600 \
+SPAWN_RATE=30 \
 locust -f locust/wiki_locustfile.py \
        --host http://<CP-PUBLIC-IP>:30193 \
        --web-host 0.0.0.0 --web-port 8089 \
-       --autostart --autoquit 5
+       --autostart --autoquit 90 \
+       --run-time 600s
 ```
 
 Env vars:
