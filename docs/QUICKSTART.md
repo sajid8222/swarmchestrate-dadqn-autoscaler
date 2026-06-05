@@ -221,8 +221,6 @@ curl -s -o /dev/null -w "gateway HTTP %{http_code}\n" http://<CP-PUBLIC-IP>:3019
 
 The trained model weights are **baked into the Docker image** at `/app/models/sla_v1/` (see `Dockerfile`'s `COPY models/sla_v1/` step). No manual staging is needed — each agent pod loads its service's `.zip` directly from the image.
 
-> **Heads-up if you're forking with custom models:** rebuild the image (`docker build -t <your-registry>/dadqn-autoscaler:<tag> .`) and update `image:` in `manifests/04-deployment.yaml`. The manifests don't mount any `hostPath` for models — models live entirely inside the image.
-
 ### 3A. Apply the agents (single command)
 
 From the repo root, with `KUBECONFIG` pointing at the cluster:
