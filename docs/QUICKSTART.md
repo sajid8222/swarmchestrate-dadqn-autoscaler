@@ -264,6 +264,33 @@ done
 #   decision: scaled to {'frontend': 1, 'cart': 1, ...}  ← WRONG (centralized — see Troubleshooting)
 ```
 
+### 3C. Preflight (REQUIRED before every Locust run)
+
+> **Why this exists.** Istio waypoint pods accumulate connection state over hours, and Prometheus
+> can lose the Istio scrape across a VM restart. Either condition silently inflates gateway p95
+> from ~250 ms → ~10 000 ms with no obvious error. Running this script clears both classes of stale
+> state in ~30 s. Skipping it once cost us a multi-hour debugging session — please do not skip it.
+
+Run **on the CP node** (SSH into it first):
+
+```bash
+ssh ubuntu@<CP-PUBLIC-IP>
+cd ~/swarmchestrate-dadqn-autoscaler
+bash scripts/preflight.sh
+# Wait ~30 s for Prometheus to re-establish its Istio scrape, then start Locust.
+```
+
+What it does (idempotent — safe to run any time):
+
+1. Force-deletes every Istio waypoint pod (`gateway.istio.io/managed=istio.io-mesh-controller`)
+   → fresh Envoy with no accumulated connection state.
+2. Restarts the Prometheus pod (skip with `--skip-prom` if you know the scrape is healthy)
+   → re-establishes Istio metric collection after a cluster restart.
+3. Verifies `ConfigMap/dadqn-config.LOCUST_URL` is `http://locust-shim.default.svc.cluster.local:8089`.
+4. Verifies the `locust-shim` Deployment is Ready and reachable from inside an agent pod.
+
+If step 4 fails (`shim NOT reachable from agent`), re-apply `kubectl apply -f manifests/` and re-run.
+
 ---
 
 ## 4. Locust load test
@@ -366,10 +393,11 @@ aws ec2 stop-instances --instance-ids <id1> <id2> ...
 | Each agent log shows decisions for ALL 10 services in the dict | Per-pod `SCALABLE_SERVICES` patch silently failed; pod is using a stale cached image | `kubectl rollout restart deploy -l app=dadqn-autoscaler`. If still bad, on each worker: `sudo k3s crictl rmi docker.io/proactivellmbasedproject/dadqn-autoscaler:v4-decentralized` to wipe cache, then re-apply manifests. Verify with `kubectl exec ... -- python -c "from dadqn_v3.config import SCALABLE_SERVICES; print(SCALABLE_SERVICES)"` — must show 1 item. |
 | `ztunnel` pod stuck `ContainerCreating` with `failed to find plugin "istio-cni" in path [...]` | k3s CNI dir differs from istioctl default | Take the path from the error, re-run `istioctl install` with that as `cniBinDir` |
 | `kubectl get nodes` from laptop times out | Cluster API (port 6443) not open from your IP | SSH to CP and run from there, or open SG: `aws ec2 authorize-security-group-ingress --group-id <sg> --protocol tcp --port 6443 --cidr <your-ip>/32` |
-| Agents come up but crash with file-not-found loading model | Models not staged on the worker where the pod landed | scp models to **all** workers' `/tmp/sla_v1/` |
+| Agents come up but crash with `FileNotFoundError` on a `.zip` model | Pod is on a stale cached image that pre-dates the baked-in models | Manifests already set `imagePullPolicy: Always`. Force a fresh pull with `kubectl rollout restart deploy -l app=dadqn-autoscaler`. If still bad, on each worker: `sudo k3s crictl rmi docker.io/proactivellmbasedproject/dadqn-autoscaler:v4-decentralized` then re-apply manifests. |
 | Locust web UI launches but stays `Status: ready` | `--autostart` didn't trigger | Click "Start" in the browser, or add `--users 500 --spawn-rate 10` to the launch command |
-| Gateway p95 huge (>2000ms) at peak load | Cluster physical CPU/MEM ceiling | `kubectl top nodes` — workers >80% means hardware limit, not agent bug. Use bigger instances or lower workload |
-| `Locust unavailable, using Gateway p95 (...)` in agent log | Normal — agent fell back to Prometheus gateway p95 since `LOCUST_URL` isn't set | Expected. The fallback is functionally equivalent. |
+| **Gateway p95 stuck at 8–10 s, frontend logs `context canceled` calling backends, backend CPU is idle** | **Stale Envoy connection state inside a long-running Istio waypoint pod (most common after the cluster has been up for hours, or across a VM restart)** | **Run `bash scripts/preflight.sh` on the CP.** It deletes every waypoint pod (Envoy restarts clean) and restarts Prometheus. Recovery is visible in the agent logs within ~20 s — gateway p95 drops to ~250 ms. **This is the single most common load-test problem; run preflight before every test.** |
+| Agent logs show `rps=0 / users=0` even while Locust is sending real traffic | Either (a) `LOCUST_URL` isn't pointing at `locust-shim`, or (b) Prometheus stopped scraping Istio (built-in idle override then forces all services back to `MIN_REPLICAS`) | `bash scripts/preflight.sh` — it verifies both conditions and recreates the Prom pod if needed. After the script, give Prom ~30 s to repopulate `istio_requests_total` before starting Locust. |
+| Gateway p95 still high (>2000 ms) at peak load AFTER preflight + with all relevant services already at `MAX_REPLICAS` | True cluster CPU/MEM ceiling | `kubectl top nodes` — workers >80% means hardware limit, not agent bug. Use bigger instances or lower workload. |
 
 ---
 
@@ -378,6 +406,7 @@ aws ec2 stop-instances --instance-ids <id1> <id2> ...
 | Action | Command |
 |---|---|
 | Deploy agents | `bash scripts/apply_dadqn.sh` |
+| **Preflight (every test)** | `bash scripts/preflight.sh` (on CP) |
 | Run load test | `WORKLOAD_CSV=workloads/rps-c2.csv DURATION_S=1200 locust -f locust/wiki_locustfile.py --host http://<CP>:30193 --web-port 8089 --autostart --autoquit 5` |
 | Watch agents | `kubectl -n default logs deploy/dadqn-frontend -f` |
 | Stop agents | `kubectl -n default delete -f manifests/` |
