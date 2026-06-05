@@ -22,7 +22,7 @@ spec:
       containers:
         - name: agent
           image: proactivellmbasedproject/dadqn-autoscaler:v4-decentralized
-          imagePullPolicy: IfNotPresent
+          imagePullPolicy: Always
           command: ["sh","-c"]
           args:
             - >
@@ -58,7 +58,7 @@ spec:
       containers:
         - name: agent
           image: proactivellmbasedproject/dadqn-autoscaler:v4-decentralized
-          imagePullPolicy: IfNotPresent
+          imagePullPolicy: Always
           command: ["sh","-c"]
           args:
             - >
@@ -94,7 +94,7 @@ spec:
       containers:
         - name: agent
           image: proactivellmbasedproject/dadqn-autoscaler:v4-decentralized
-          imagePullPolicy: IfNotPresent
+          imagePullPolicy: Always
           command: ["sh","-c"]
           args:
             - >
@@ -130,7 +130,7 @@ spec:
       containers:
         - name: agent
           image: proactivellmbasedproject/dadqn-autoscaler:v4-decentralized
-          imagePullPolicy: IfNotPresent
+          imagePullPolicy: Always
           command: ["sh","-c"]
           args:
             - >
@@ -166,7 +166,7 @@ spec:
       containers:
         - name: agent
           image: proactivellmbasedproject/dadqn-autoscaler:v4-decentralized
-          imagePullPolicy: IfNotPresent
+          imagePullPolicy: Always
           command: ["sh","-c"]
           args:
             - >
@@ -202,7 +202,7 @@ spec:
       containers:
         - name: agent
           image: proactivellmbasedproject/dadqn-autoscaler:v4-decentralized
-          imagePullPolicy: IfNotPresent
+          imagePullPolicy: Always
           command: ["sh","-c"]
           args:
             - >
@@ -238,7 +238,7 @@ spec:
       containers:
         - name: agent
           image: proactivellmbasedproject/dadqn-autoscaler:v4-decentralized
-          imagePullPolicy: IfNotPresent
+          imagePullPolicy: Always
           command: ["sh","-c"]
           args:
             - >
@@ -274,7 +274,7 @@ spec:
       containers:
         - name: agent
           image: proactivellmbasedproject/dadqn-autoscaler:v4-decentralized
-          imagePullPolicy: IfNotPresent
+          imagePullPolicy: Always
           command: ["sh","-c"]
           args:
             - >
@@ -310,7 +310,7 @@ spec:
       containers:
         - name: agent
           image: proactivellmbasedproject/dadqn-autoscaler:v4-decentralized
-          imagePullPolicy: IfNotPresent
+          imagePullPolicy: Always
           command: ["sh","-c"]
           args:
             - >
@@ -346,7 +346,7 @@ spec:
       containers:
         - name: agent
           image: proactivellmbasedproject/dadqn-autoscaler:v4-decentralized
-          imagePullPolicy: IfNotPresent
+          imagePullPolicy: Always
           command: ["sh","-c"]
           args:
             - >
