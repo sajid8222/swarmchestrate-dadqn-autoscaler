@@ -1,0 +1,124 @@
+# Locust-shim — synthesizes a /stats/requests endpoint from Prometheus
+# istio metrics so the DA-DQN agents can read gateway-level RPS / p95 / users
+# *without* needing Locust to run on the cluster (Locust runs on the
+# researcher's laptop and sends traffic via the gateway NodePort).
+#
+# The script is held in a ConfigMap so we don't need to publish a custom image
+# — the standard python:3.11-slim image runs the script directly.
+#
+# Agents reach the shim via the in-cluster DNS name:
+#   http://locust-shim.default.svc.cluster.local:8089
+# (this is what `dadqn-config.LOCUST_URL` is set to).
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: locust-shim-script
+  namespace: default
+data:
+  p95_shim.py: |
+    """Locust shim — translates Prometheus istio metrics into Locust's
+    /stats/requests JSON format so DA-DQN agents can read live RPS without
+    Locust running inside the cluster."""
+    import json, os, urllib.parse, urllib.request
+    from http.server import BaseHTTPRequestHandler, HTTPServer
+
+    PROM = os.environ.get(
+        "PROMETHEUS_URL",
+        "http://prom-kube-prometheus-stack-prometheus.monitoring.svc.cluster.local:9090",
+    ).rstrip("/") + "/api/v1/query"
+
+    def pq(query):
+        try:
+            url = f"{PROM}?query={urllib.parse.quote(query)}"
+            with urllib.request.urlopen(url, timeout=4) as r:
+                d = json.load(r)
+            res = d.get("data", {}).get("result", [])
+            if not res:
+                return 0.0
+            v = res[0]["value"][1]
+            if v in ("NaN", "+Inf", "-Inf", None):
+                return 0.0
+            return float(v)
+        except Exception:
+            return 0.0
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            if "/stats/requests" not in self.path:
+                self.send_response(404); self.end_headers(); return
+            rps = pq('sum(rate(istio_requests_total{source_workload="frontend-gateway-istio"}[1m]))')
+            p95 = pq('histogram_quantile(0.95, sum by (le)(rate(istio_request_duration_milliseconds_bucket{source_workload="frontend-gateway-istio"}[1m])))')
+            avg_num = pq('sum(rate(istio_request_duration_milliseconds_sum{source_workload="frontend-gateway-istio"}[1m]))')
+            avg_den = pq('sum(rate(istio_request_duration_milliseconds_count{source_workload="frontend-gateway-istio"}[1m]))')
+            avg_ms = (avg_num / avg_den) if avg_den > 0 else 0.0
+            users = max(int(rps * 2), 0)
+            body = json.dumps({
+                "user_count": users,
+                "state": "running" if rps > 0 else "stopped",
+                "stats": [{
+                    "name": "Aggregated",
+                    "current_rps": round(rps, 1),
+                    "avg_response_time": round(avg_ms, 1),
+                    "current_response_time_percentile_95": round(p95, 1),
+                }],
+            }).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+        def log_message(self, *args, **kwargs): return
+
+    if __name__ == "__main__":
+        print("locust-shim listening on :8089 (Prometheus-backed Locust-emulator)")
+        HTTPServer(("0.0.0.0", 8089), Handler).serve_forever()
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: locust-shim
+  namespace: default
+  labels: {app: locust-shim}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: locust-shim}
+  template:
+    metadata:
+      labels: {app: locust-shim}
+    spec:
+      containers:
+        - name: shim
+          image: python:3.11-slim
+          imagePullPolicy: IfNotPresent
+          command: ["python3", "/scripts/p95_shim.py"]
+          ports:
+            - {containerPort: 8089, name: http}
+          env:
+            - name: PROMETHEUS_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: dadqn-config
+                  key: PROMETHEUS_URL
+          volumeMounts:
+            - {name: script, mountPath: /scripts, readOnly: true}
+          resources:
+            requests: {cpu: "50m", memory: "64Mi"}
+            limits: {cpu: "200m", memory: "128Mi"}
+      volumes:
+        - name: script
+          configMap:
+            name: locust-shim-script
+            items:
+              - {key: p95_shim.py, path: p95_shim.py}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: locust-shim
+  namespace: default
+spec:
+  selector: {app: locust-shim}
+  ports:
+    - {name: http, port: 8089, targetPort: 8089, protocol: TCP}
