@@ -31,7 +31,8 @@ echo "Sample agent log (frontend, last 15 lines):"
 kubectl -n default logs deploy/dadqn-frontend --tail=15
 
 echo
-echo "Done. Watch decisions in real-time with:"
-echo "  bash scripts/monitor.sh"
-echo "or per-service:"
+echo "Done. Next steps:"
+echo "  1) bash scripts/preflight.sh         # required before each Locust run"
+echo "  2) bash scripts/monitor_cluster.sh   # live cluster monitor in another terminal"
+echo "or follow one agent:"
 echo "  kubectl -n default logs deploy/dadqn-frontend -f"

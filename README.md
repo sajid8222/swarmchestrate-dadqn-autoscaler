@@ -66,9 +66,9 @@ dadqn-autoscaler/
 ├── workloads/rps-{200,400,600}.csv # load profiles
 │
 ├── scripts/
-│   ├── preflight_full.sh           # post-restart fix (gateway, waypoints, Prom)
-│   ├── live_monitor.sh             # 5 s live mesh + node monitor
-│   └── monitor.sh                  # compact per-worker monitor
+│   ├── apply_dadqn.sh              # deploy 10 agents + locust-shim (Step 3A)
+│   ├── preflight.sh                # refresh waypoints + verify shim (run before each load test)
+│   └── monitor_cluster.sh          # live cluster monitor (pod counts, gateway p95, decisions)
 │
 ├── docs/architecture.md            # observation layout, cascade graph, dims
 ├── Dockerfile                      # builds the agent image
@@ -345,7 +345,7 @@ WORKLOAD_CSV=workloads/rps-200.csv DURATION_S=600 SPAWN_RATE=10 \
 Watch agents react:
 
 ```bash
-bash scripts/monitor.sh
+bash scripts/monitor_cluster.sh
 # or per-service:
 kubectl -n default logs deploy/dadqn-frontend  -f
 ```
@@ -420,9 +420,11 @@ to retrain on your own cluster's data distribution.
 - **t3.medium / t2.large clusters work**, but smaller workers (≤ 4 GiB RAM)
   may not have enough capacity for the agents' chosen replica counts. You'll
   see pods in `Pending` state — that's a hardware ceiling, not an agent bug.
-- **`preflight_full.sh` after VM stop/start**: Istio mesh state, Prometheus scrape
-  targets, and waypoint pod counts often need a rolling restart. The script
-  handles all three.
+- **`preflight.sh` before every load test**: Istio waypoint pods accumulate
+  stale Envoy connection state over hours, and Prometheus can lose the Istio
+  scrape across a VM restart. Either condition silently inflates gateway p95
+  to ~10 s. The preflight script refreshes waypoints + restarts Prometheus +
+  verifies the locust-shim Service in ~30 s.
 - **Image**: the deployed agent uses `proactivellmbasedproject/dadqn-autoscaler:v4-decentralized` which has every V4 patch baked in (cascade `service_graph.py`, utilization-feature `service_agent_env.py`, Prometheus-only `metrics_collector_v3.py`, NORM_BOUNDS tuned for cluster-2 sized hardware). No ConfigMap subPath mounts are needed. Rebuild from `Dockerfile` if you want a custom image; tag and update `manifests/04-deployment.yaml`.
 
 ## License

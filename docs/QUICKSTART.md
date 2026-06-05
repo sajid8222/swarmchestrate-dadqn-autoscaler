@@ -35,7 +35,7 @@ manifests/       4 YAMLs (SA, RBAC, configmap, 10 Deployments)
 models/sla_v1/   10 trained DQN model zips (~1 MB total)
 locust/          load generator script
 workloads/       4 CSV load profiles (rps-200, 400, 600, c2)
-scripts/         apply_dadqn.sh, monitor.sh, preflight_full.sh
+scripts/         apply_dadqn.sh, preflight.sh, monitor_cluster.sh
 docs/            architecture.md, QUICKSTART.md (this file)
 Dockerfile       optional: rebuild your own image
 ```
