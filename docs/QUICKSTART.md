@@ -323,11 +323,13 @@ Browser: `http://localhost:8089` — live RPS, p95, users.
 In another terminal:
 
 ```bash
-# Live monitor — gateway p95, replicas, latest agent decisions
-bash scripts/monitor.sh   # if you cloned this script, otherwise see scripts/
+# Comprehensive live monitor — pod counts per service, distribution per worker,
+# gateway aggregate (RPS / users / p95), per-service latency + RPM, and recent
+# agent decisions. Refreshes every ~10s.
+bash scripts/monitor_cluster.sh
 
-# Or per-service:
-kubectl -n default logs deploy/dadqn-frontend -f
+# Or just follow one agent's decisions:
+kubectl -n default logs deploy/dadqn-frontend -f | grep -E "decision|idle auto"
 ```
 
 ### 4E. Expected scaling behavior
