@@ -7,7 +7,7 @@
 #
 # Pre-reqs:
 #   - Cluster has: k3s + Istio ambient + Prometheus + Boutique + waypoints + Gateway:30193
-#   - Models staged on each worker at /tmp/sla_v1/*.zip (see README §2)
+#   - Image (v4-decentralized) has models baked in — no host staging needed
 #   - $KUBECONFIG points at the target cluster
 #   - You're running from the repo root
 
