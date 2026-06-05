@@ -1,4 +1,4 @@
-# DA-DQN Autoscaler — Decentralized, Per-Service (V4)
+# DA-DQN Autoscaler — Decentralized
 
 A **decentralized** Deep-Q-Network autoscaler for microservices. One trained DQN
 agent per microservice runs as its **own Kubernetes Deployment**, observes its
